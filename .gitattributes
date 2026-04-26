@@ -1,0 +1,16 @@
+# GitHub Linguist tuning for the publish repo.
+#
+# The .NET implementation at the repo root is the only release-tracked
+# CA server. The five language ports under example/ are reference reads
+# carried forward from v1.0.0-alpha.2 and not maintained or built. They
+# also happen to dominate the byte count, so without this file GitHub
+# shows the repo's primary language as Java (Spring Boot is verbose) —
+# which is wrong.
+#
+# linguist-vendored excludes these files from BOTH the language summary
+# bar at the top of the repo page AND diff highlighting; they still show
+# up in `git log` and search.
+
+example/**                    linguist-vendored=true
+example/*/Dockerfile          linguist-vendored=true
+example/*/docker-compose.yml  linguist-vendored=true
