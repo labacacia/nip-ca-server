@@ -1,0 +1,23 @@
+# .NET
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+.vs/
+
+# Reference ports under example/ — keep their build outputs out
+example/*/bin/
+example/*/obj/
+example/*/target/
+example/*/node_modules/
+example/*/build/
+example/*/dist/
+example/*/__pycache__/
+example/*/.gradle/
+example/*/*.lock
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

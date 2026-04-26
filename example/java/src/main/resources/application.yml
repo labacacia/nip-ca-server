@@ -1,0 +1,14 @@
+server:
+  port: ${PORT:17440}
+
+nip:
+  ca:
+    nid:          ${NIP_CA_NID}
+    passphrase:   ${NIP_CA_PASSPHRASE}
+    base-url:     ${NIP_CA_BASE_URL}
+    display-name: ${NIP_CA_DISPLAY_NAME:NPS CA}
+    key-file:     ${NIP_CA_KEY_FILE:/data/ca.key.enc}
+    db-path:      ${NIP_CA_DB_PATH:/data/ca.db}
+    agent-validity-days: ${NIP_CA_AGENT_VALIDITY_DAYS:30}
+    node-validity-days:  ${NIP_CA_NODE_VALIDITY_DAYS:90}
+    renewal-window-days: ${NIP_CA_RENEWAL_WINDOW_DAYS:7}
