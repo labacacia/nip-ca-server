@@ -4,6 +4,10 @@ package com.labacacia.nipcaserver;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.labacacia.nps.nip.AssuranceLevel;
+import com.labacacia.nps.nip.IdentCertFormat;
+import com.labacacia.nps.nip.x509.Ed25519PublicKeys;
+import com.labacacia.nps.nip.x509.NipX509Builder;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Cipher;
@@ -11,12 +15,17 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 import javax.crypto.SecretKeyFactory;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.file.*;
 import java.security.*;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.security.spec.*;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 @Service
@@ -149,6 +158,93 @@ public class CaService {
         byte[] uid = new byte[8];
         new SecureRandom().nextBytes(uid);
         return "urn:nps:" + entityType + ":" + domain + ":" + HexFormat.of().formatHex(uid);
+    }
+
+    // ── X.509 issuance (NPS-RFC-0002) ────────────────────────────────────────
+
+    /**
+     * Load a self-signed X.509 root cert from {@code rootPath}, or generate one if missing.
+     * The root binds the CA's NID and Ed25519 public key; it is used as the trust anchor
+     * for v2 IdentFrames.
+     */
+    public X509Certificate loadOrCreateRootCert(KeyPair caKp, String caNid, String rootPath)
+            throws Exception {
+        Path p = Paths.get(rootPath);
+        if (Files.exists(p)) {
+            try (var in = Files.newInputStream(p)) {
+                CertificateFactory cf = CertificateFactory.getInstance("X.509");
+                return (X509Certificate) cf.generateCertificate(in);
+            }
+        }
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        X509Certificate root = NipX509Builder.issueRoot(
+            caNid, caKp.getPrivate(),
+            Ed25519PublicKeys.extractRaw(caKp.getPublic()),
+            now.minus(Duration.ofMinutes(1)),
+            now.plus(Duration.ofDays(365L * 5)),
+            new BigInteger(160, new SecureRandom()));
+        if (p.getParent() != null) Files.createDirectories(p.getParent());
+        Files.write(p, root.getEncoded());
+        return root;
+    }
+
+    /**
+     * Issue a v2 IdentFrame with both the legacy v1 Ed25519 signature AND an X.509 cert chain.
+     * The v1 signature path is unchanged so v1-only verifiers continue to accept the frame
+     * (RFC-0002 §8.1 Phase 1 dual-trust).
+     */
+    public Map<String, Object> issueCertX509(
+            KeyPair         caKp,
+            String          caNid,
+            X509Certificate rootCert,
+            String          subjectNid,
+            String          subjectPubKey,         // "ed25519:<hex>"
+            List<String>    capabilities,
+            Map<String, Object> scope,
+            int             validityDays,
+            String          serial,
+            Map<String, Object> metadata,
+            AssuranceLevel  assuranceLevel,
+            String          entityType) throws Exception {
+        // 1) v1 IdentFrame (existing path) — produces the Ed25519 CA signature.
+        Map<String, Object> frame = issueCert(caKp.getPrivate(), caNid,
+            subjectNid, subjectPubKey, capabilities, scope,
+            validityDays, serial, metadata);
+
+        // 2) Build X.509 leaf signed by the same CA key.
+        byte[] subjectRaw = HexFormat.of().parseHex(
+            subjectPubKey.replace("ed25519:", ""));
+        Instant now    = Instant.parse(((String) frame.get("issued_at")));
+        Instant expiry = Instant.parse(((String) frame.get("expires_at")));
+        BigInteger serialBig = parseSerial(serial);
+        NipX509Builder.LeafRole role = "node".equals(entityType)
+            ? NipX509Builder.LeafRole.NODE : NipX509Builder.LeafRole.AGENT;
+
+        X509Certificate leaf = NipX509Builder.issueLeaf(
+            subjectNid, subjectRaw,
+            caKp.getPrivate(), caNid,
+            role,
+            assuranceLevel == null ? AssuranceLevel.ANONYMOUS : assuranceLevel,
+            now, expiry, serialBig);
+
+        // 3) Attach cert_format + cert_chain to the v1 frame (non-breaking).
+        Base64.Encoder urlEnc = Base64.getUrlEncoder().withoutPadding();
+        List<String> chain = List.of(
+            urlEnc.encodeToString(leaf.getEncoded()),
+            urlEnc.encodeToString(rootCert.getEncoded()));
+
+        Map<String, Object> v2 = new LinkedHashMap<>(frame);
+        v2.put("cert_format", IdentCertFormat.V2_X509);
+        v2.put("cert_chain",  chain);
+        if (assuranceLevel != null) v2.put("assurance_level", assuranceLevel.wire());
+        return v2;
+    }
+
+    private static BigInteger parseSerial(String s) {
+        // CA serials look like "0xABCD..." — convert to BigInteger.
+        if (s == null || s.isBlank()) return new BigInteger(160, new SecureRandom());
+        String hex = s.startsWith("0x") || s.startsWith("0X") ? s.substring(2) : s;
+        return new BigInteger(hex, 16);
     }
 
     // ── Internal Crypto ───────────────────────────────────────────────────────

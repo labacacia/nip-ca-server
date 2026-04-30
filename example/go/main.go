@@ -24,15 +24,23 @@ func main() {
 	passphrase := mustEnv("NIP_CA_PASSPHRASE")
 	baseURL    := mustEnv("NIP_CA_BASE_URL")
 
-	keyFile     := envStr("NIP_CA_KEY_FILE",     "/data/ca.key.enc")
-	dbPath      := envStr("NIP_CA_DB_PATH",      "/data/ca.db")
-	displayName := envStr("NIP_CA_DISPLAY_NAME", "NPS CA")
-	agentDays   := envInt("NIP_CA_AGENT_VALIDITY_DAYS", 30)
-	nodeDays    := envInt("NIP_CA_NODE_VALIDITY_DAYS",  90)
-	renewalDays := envInt("NIP_CA_RENEWAL_WINDOW_DAYS", 7)
-	port        := envStr("PORT", "17440")
+	keyFile      := envStr("NIP_CA_KEY_FILE",       "/data/ca.key.enc")
+	rootCertFile := envStr("NIP_CA_ROOT_CERT_FILE", "/data/ca.root.der")
+	dbPath       := envStr("NIP_CA_DB_PATH",        "/data/ca.db")
+	displayName  := envStr("NIP_CA_DISPLAY_NAME", "NPS CA")
+	agentDays    := envInt("NIP_CA_AGENT_VALIDITY_DAYS", 30)
+	nodeDays     := envInt("NIP_CA_NODE_VALIDITY_DAYS",  90)
+	renewalDays  := envInt("NIP_CA_RENEWAL_WINDOW_DAYS", 7)
+	port         := envStr("PORT", "17440")
 
 	sk := loadOrGenKey(keyFile, passphrase)
+
+	// NPS-RFC-0002 — load or generate the X.509 root cert (5-year self-signed).
+	caRootCert, err := ca.LoadOrCreateRootCert(sk, caNID, rootCertFile)
+	if err != nil {
+		slog.Error("failed to load/create X.509 root cert", "err", err)
+		os.Exit(1)
+	}
 
 	store, err := db.Open(dbPath)
 	if err != nil {
@@ -50,6 +58,7 @@ func main() {
 		AgentDays:   agentDays,
 		NodeDays:    nodeDays,
 		RenewalDays: renewalDays,
+		CaRootCert:  caRootCert,
 	}
 
 	srv := &http.Server{

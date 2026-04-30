@@ -11,6 +11,7 @@ const CA_NID        = process.env["NIP_CA_NID"]!;
 const CA_PASSPHRASE = process.env["NIP_CA_PASSPHRASE"]!;
 const CA_BASE_URL   = (process.env["NIP_CA_BASE_URL"] ?? "").replace(/\/$/, "");
 const KEY_FILE      = process.env["NIP_CA_KEY_FILE"]     ?? "/data/ca.key.enc";
+const ROOT_CERT_FILE = process.env["NIP_CA_ROOT_CERT_FILE"] ?? "/data/ca.root.der";
 const DB_PATH       = process.env["NIP_CA_DB_PATH"]      ?? "/data/ca.db";
 const DISPLAY_NAME  = process.env["NIP_CA_DISPLAY_NAME"] ?? "NPS CA";
 const AGENT_DAYS    = parseInt(process.env["NIP_CA_AGENT_VALIDITY_DAYS"] ?? "30");
@@ -35,6 +36,9 @@ if (!fs.existsSync(KEY_FILE)) {
   caPriv = ca.loadKey(KEY_FILE, CA_PASSPHRASE);
 }
 caPubStr = ca.pubKeyString(crypto.createPublicKey(caPriv));
+
+// NPS-RFC-0002 — load or generate the X.509 root cert (5-year self-signed).
+const caRootCert = await ca.loadOrCreateRootCert(caPriv, CA_NID, ROOT_CERT_FILE);
 
 const db = new CaDb(DB_PATH);
 
@@ -73,6 +77,39 @@ app.post("/v1/agents/register", async (req, reply) => {
 
 app.post("/v1/nodes/register", async (req, reply) => {
   register(req.body as any, "node", NODE_DAYS, reply);
+});
+
+// ── v2 Register (NPS-RFC-0002 X.509 + Ed25519 dual-trust) ───────────────────
+async function registerV2(
+  body: { nid?: string; pub_key: string; capabilities?: string[]; scope?: object; metadata?: object },
+  entityType: string,
+  validityDays: number,
+  reply: any,
+): Promise<void> {
+  const nid = body.nid ?? ca.generateNid(CA_DOMAIN, entityType);
+  if (db.getActive(nid)) {
+    reply.code(409).send({ error_code: "NIP-CA-NID-ALREADY-EXISTS",
+      message: `${nid} already has an active certificate` });
+    return;
+  }
+  const serial = db.nextSerial();
+  const cert = await ca.issueCertX509(caPriv, CA_NID, caRootCert, nid, body.pub_key,
+    entityType, body.capabilities ?? [], body.scope as any ?? {},
+    validityDays, serial, (body as any).metadata ?? null);
+  db.insert({ nid, entity_type: entityType, serial, pub_key: body.pub_key,
+    capabilities: body.capabilities ?? [], scope: body.scope as any ?? {},
+    issued_by: CA_NID, issued_at: cert.issued_at, expires_at: cert.expires_at,
+    metadata: (body as any).metadata ?? null });
+  reply.code(201).send({ nid, serial, issued_at: cert.issued_at,
+    expires_at: cert.expires_at, ident_frame: cert });
+}
+
+app.post("/v2/agents/register", async (req, reply) => {
+  await registerV2(req.body as any, "agent", AGENT_DAYS, reply);
+});
+
+app.post("/v2/nodes/register", async (req, reply) => {
+  await registerV2(req.body as any, "node", NODE_DAYS, reply);
 });
 
 app.post<{ Params: { "*": string } }>("/v1/agents/*", async (req, reply) => {
@@ -137,13 +174,15 @@ app.get("/v1/crl", async (_req, reply) =>
 
 app.get("/.well-known/nps-ca", async (_req, reply) =>
   reply.send({
-    nps_ca: "0.1", issuer: CA_NID, display_name: DISPLAY_NAME, public_key: caPubStr,
+    nps_ca: "0.2", issuer: CA_NID, display_name: DISPLAY_NAME, public_key: caPubStr,
     algorithms: ["ed25519"],
+    cert_formats: ["v1-proprietary", "v2-x509"],   // NPS-RFC-0002 §4.5
     endpoints: {
-      register: `${CA_BASE_URL}/v1/agents/register`,
-      verify:   `${CA_BASE_URL}/v1/agents/{nid}/verify`,
-      ocsp:     `${CA_BASE_URL}/v1/agents/{nid}/verify`,
-      crl:      `${CA_BASE_URL}/v1/crl`,
+      register:    `${CA_BASE_URL}/v1/agents/register`,
+      register_v2: `${CA_BASE_URL}/v2/agents/register`,   // NPS-RFC-0002
+      verify:      `${CA_BASE_URL}/v1/agents/{nid}/verify`,
+      ocsp:        `${CA_BASE_URL}/v1/agents/{nid}/verify`,
+      crl:         `${CA_BASE_URL}/v1/crl`,
     },
     capabilities: ["agent", "node"],
     max_cert_validity_days: Math.max(AGENT_DAYS, NODE_DAYS),

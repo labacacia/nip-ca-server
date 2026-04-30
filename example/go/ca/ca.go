@@ -9,11 +9,16 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	cryptox509 "crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -222,4 +227,157 @@ func IssueCert(
 		cert["metadata"] = metadata
 	}
 	return cert
+}
+
+// ── NPS-RFC-0002 X.509 issuance ──────────────────────────────────────────────
+
+// Provisional OIDs — replace once IANA PEN is granted (RFC-0002 §10 OQ-2).
+var (
+	oidEkuAgent         = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 1}
+	oidEkuNode          = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 2}
+	oidNidAssuranceLvl  = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 2, 1}
+	oidExtensionExtKeyUsage = asn1.ObjectIdentifier{2, 5, 29, 37}
+)
+
+// LoadOrCreateRootCert loads a self-signed X.509 root from disk, or creates a
+// fresh 5-year root and persists it.
+func LoadOrCreateRootCert(sk ed25519.PrivateKey, caNID, rootPath string) (*cryptox509.Certificate, error) {
+	if data, err := os.ReadFile(rootPath); err == nil {
+		return cryptox509.ParseCertificate(data)
+	}
+	now := time.Now()
+	tmpl := &cryptox509.Certificate{
+		SerialNumber:          randomSerial(),
+		Subject:               pkix.Name{CommonName: caNID},
+		Issuer:                pkix.Name{CommonName: caNID},
+		NotBefore:             now.Add(-time.Minute),
+		NotAfter:              now.Add(5 * 365 * 24 * time.Hour),
+		KeyUsage:              cryptox509.KeyUsageCertSign | cryptox509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	pub := sk.Public().(ed25519.PublicKey)
+	der, err := cryptox509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, sk)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(rootPath), 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(rootPath, der, 0o600); err != nil {
+		return nil, err
+	}
+	return cryptox509.ParseCertificate(der)
+}
+
+// IssueCertX509 issues a v2 IdentFrame: v1 Ed25519 signature AND a 2-cert
+// X.509 chain (leaf + self-signed root). Non-breaking — v1 verifiers ignore
+// cert_format/cert_chain. NPS-RFC-0002 §4.
+func IssueCertX509(
+	sk ed25519.PrivateKey,
+	caNID string,
+	caRoot *cryptox509.Certificate,
+	subjectNID, subjectPubKey, entityType string,
+	capabilities []string,
+	scope map[string]any,
+	validityDays int,
+	serial string,
+	metadata map[string]any,
+) (map[string]any, error) {
+	cert := IssueCert(sk, caNID, subjectNID, subjectPubKey,
+		capabilities, scope, validityDays, serial, metadata)
+
+	subjectPub, err := parseEd25519PubKeyString(subjectPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("subject pub_key: %w", err)
+	}
+	notBefore, _ := time.Parse(time.RFC3339, cert["issued_at"].(string))
+	notAfter, _  := time.Parse(time.RFC3339, cert["expires_at"].(string))
+	serialInt, ok := new(big.Int).SetString(serial, 16)
+	if !ok {
+		serialInt = randomSerial()
+	}
+
+	leaf, err := issueX509Leaf(subjectNID, subjectPub, sk, caNID, entityType,
+		notBefore, notAfter, serialInt)
+	if err != nil {
+		return nil, err
+	}
+	cert["cert_format"] = "v2-x509"
+	cert["cert_chain"] = []string{
+		base64.RawURLEncoding.EncodeToString(leaf.Raw),
+		base64.RawURLEncoding.EncodeToString(caRoot.Raw),
+	}
+	return cert, nil
+}
+
+func issueX509Leaf(
+	subjectNID string,
+	subjectPub ed25519.PublicKey,
+	caPriv ed25519.PrivateKey,
+	caNID, entityType string,
+	notBefore, notAfter time.Time,
+	serial *big.Int,
+) (*cryptox509.Certificate, error) {
+	ekuOid := oidEkuAgent
+	if entityType == "node" {
+		ekuOid = oidEkuNode
+	}
+	ekuValue, err := asn1.Marshal([]asn1.ObjectIdentifier{ekuOid})
+	if err != nil {
+		return nil, err
+	}
+	uri, err := url.Parse(subjectNID)
+	if err != nil {
+		return nil, fmt.Errorf("parse subject NID as URI: %w", err)
+	}
+	// Anonymous (rank 0) — server side issues at default level.
+	assuranceDer := []byte{0x0A, 0x01, 0x00}
+
+	tmpl := &cryptox509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: subjectNID},
+		Issuer:                pkix.Name{CommonName: caNID},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              cryptox509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  false,
+		URIs:                  []*url.URL{uri},
+		ExtraExtensions: []pkix.Extension{
+			{Id: oidExtensionExtKeyUsage, Critical: true, Value: ekuValue},
+			{Id: oidNidAssuranceLvl,      Critical: false, Value: assuranceDer},
+		},
+	}
+	parent := &cryptox509.Certificate{Subject: pkix.Name{CommonName: caNID}}
+	der, err := cryptox509.CreateCertificate(rand.Reader, tmpl, parent, subjectPub, caPriv)
+	if err != nil {
+		return nil, err
+	}
+	return cryptox509.ParseCertificate(der)
+}
+
+func parseEd25519PubKeyString(s string) (ed25519.PublicKey, error) {
+	const prefix = "ed25519:"
+	if len(s) <= len(prefix) || s[:len(prefix)] != prefix {
+		return nil, fmt.Errorf("unsupported public key format: %s", s)
+	}
+	raw, err := hex.DecodeString(s[len(prefix):])
+	if err != nil {
+		return nil, fmt.Errorf("hex decode: %w", err)
+	}
+	if len(raw) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("public key wrong size: %d", len(raw))
+	}
+	return ed25519.PublicKey(raw), nil
+}
+
+func randomSerial() *big.Int {
+	b := make([]byte, 20)
+	_, _ = io.ReadFull(rand.Reader, b)
+	n := new(big.Int).SetBytes(b)
+	if n.Sign() == 0 {
+		n.SetInt64(1)
+	}
+	return n
 }

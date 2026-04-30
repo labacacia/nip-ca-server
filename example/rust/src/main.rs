@@ -27,6 +27,8 @@ struct AppState {
     agent_days:     i64,
     node_days:      i64,
     renewal_days:   i64,
+    /// NPS-RFC-0002 — self-signed X.509 root cert (loaded/created at startup).
+    ca_root_cert:   Arc<rcgen::Certificate>,
 }
 
 // ── Models ─────────────────────────────────────────────────────────────────────
@@ -52,6 +54,51 @@ async fn register_agent(State(s): State<AppState>, Json(req): Json<RegisterReq>)
 
 async fn register_node(State(s): State<AppState>, Json(req): Json<RegisterReq>)
     -> impl IntoResponse { register(s, req, "node").await }
+
+async fn register_agent_v2(State(s): State<AppState>, Json(req): Json<RegisterReq>)
+    -> impl IntoResponse { register_v2(s, req, "agent").await }
+
+async fn register_node_v2(State(s): State<AppState>, Json(req): Json<RegisterReq>)
+    -> impl IntoResponse { register_v2(s, req, "node").await }
+
+/// NPS-RFC-0002 dual-trust register: emits both the v1 Ed25519 signature and
+/// a 2-cert X.509 chain (leaf + self-signed root).
+async fn register_v2(s: AppState, req: RegisterReq, entity_type: &str) -> impl IntoResponse {
+    let domain = ca_domain(&s.ca_nid);
+    let nid = req.nid.unwrap_or_else(|| ca::generate_nid(&domain, entity_type));
+    if s.db.get_active(&nid).unwrap_or(None).is_some() {
+        return (StatusCode::CONFLICT, Json(json!({
+            "error_code": "NIP-CA-NID-ALREADY-EXISTS",
+            "message": format!("{nid} already has an active certificate")
+        }))).into_response();
+    }
+    let caps = req.capabilities.unwrap_or_default();
+    let scope = req.scope.unwrap_or_default();
+    let days = if entity_type == "agent" { s.agent_days } else { s.node_days };
+    let serial = s.db.next_serial().unwrap();
+    let cert = match ca::issue_cert_x509(
+        &s.ca.signing_key, &s.ca_nid, &s.ca_root_cert, &nid, &req.pub_key, entity_type,
+        caps.clone(), scope.clone(), days, &serial, req.metadata.clone(),
+    ) {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
+            "error_code": "NIP-CA-INTERNAL", "message": e.to_string()
+        }))).into_response(),
+    };
+    let issued_at  = cert["issued_at"].as_str().unwrap_or("").to_string();
+    let expires_at = cert["expires_at"].as_str().unwrap_or("").to_string();
+    s.db.insert(&InsertRec {
+        nid: nid.clone(), entity_type: entity_type.to_string(), serial: serial.clone(),
+        pub_key: req.pub_key.clone(), capabilities: caps, scope,
+        issued_by: s.ca_nid.clone(), issued_at: issued_at.clone(),
+        expires_at: expires_at.clone(), metadata: req.metadata,
+    }).ok();
+    (StatusCode::CREATED, Json(json!({
+        "nid": nid, "serial": serial,
+        "issued_at": issued_at, "expires_at": expires_at,
+        "ident_frame": cert
+    }))).into_response()
+}
 
 async fn register(s: AppState, req: RegisterReq, entity_type: &str) -> impl IntoResponse {
     let domain = ca_domain(&s.ca_nid);
@@ -153,13 +200,15 @@ async fn crl(State(s): State<AppState>) -> impl IntoResponse {
 async fn well_known(State(s): State<AppState>) -> Json<Value> {
     let base = s.base_url.trim_end_matches('/');
     Json(json!({
-        "nps_ca": "0.1", "issuer": s.ca_nid, "display_name": s.display_name,
+        "nps_ca": "0.2", "issuer": s.ca_nid, "display_name": s.display_name,
         "public_key": s.ca.pub_key_str, "algorithms": ["ed25519"],
+        "cert_formats": ["v1-proprietary", "v2-x509"],   // NPS-RFC-0002 §4.5
         "endpoints": {
-            "register": format!("{base}/v1/agents/register"),
-            "verify":   format!("{base}/v1/agents/{{nid}}/verify"),
-            "ocsp":     format!("{base}/v1/agents/{{nid}}/verify"),
-            "crl":      format!("{base}/v1/crl"),
+            "register":    format!("{base}/v1/agents/register"),
+            "register_v2": format!("{base}/v2/agents/register"),   // NPS-RFC-0002
+            "verify":      format!("{base}/v1/agents/{{nid}}/verify"),
+            "ocsp":        format!("{base}/v1/agents/{{nid}}/verify"),
+            "crl":         format!("{base}/v1/crl"),
         },
         "capabilities": ["agent","node"],
         "max_cert_validity_days": std::cmp::max(s.agent_days, s.node_days),
@@ -203,8 +252,9 @@ async fn main() {
     let ca_nid      = env::var("NIP_CA_NID").expect("NIP_CA_NID is required");
     let passphrase  = env::var("NIP_CA_PASSPHRASE").expect("NIP_CA_PASSPHRASE is required");
     let base_url    = env::var("NIP_CA_BASE_URL").expect("NIP_CA_BASE_URL is required");
-    let key_file    = env_str("NIP_CA_KEY_FILE", "/data/ca.key.enc");
-    let db_path     = env_str("NIP_CA_DB_PATH",  "/data/ca.db");
+    let key_file       = env_str("NIP_CA_KEY_FILE",       "/data/ca.key.enc");
+    let root_cert_file = env_str("NIP_CA_ROOT_CERT_FILE", "/data/ca.root.der");
+    let db_path        = env_str("NIP_CA_DB_PATH",        "/data/ca.db");
     let display_name = env_str("NIP_CA_DISPLAY_NAME", "NPS CA");
     let agent_days  = env_i64("NIP_CA_AGENT_VALIDITY_DAYS", 30);
     let node_days   = env_i64("NIP_CA_NODE_VALIDITY_DAYS",  90);
@@ -220,15 +270,23 @@ async fn main() {
     };
     let pub_key_str = ca::pub_key_string(&signing_key.verifying_key());
 
+    // NPS-RFC-0002 — create X.509 root cert (re-issued each boot; see ca.rs doc).
+    let ca_root_cert = ca::create_root_cert_and_persist(&signing_key, &ca_nid, &root_cert_file)
+        .expect("failed to create/persist X.509 root cert");
+
     let state = AppState {
         ca: Arc::new(ca::Ca { signing_key, pub_key_str }),
         db: Arc::new(CaDb::open(&db_path).expect("failed to open db")),
         ca_nid, base_url, display_name, agent_days, node_days, renewal_days,
+        ca_root_cert: Arc::new(ca_root_cert),
     };
 
     let app = Router::new()
         .route("/v1/agents/register",     post(register_agent))
         .route("/v1/nodes/register",      post(register_node))
+        // NPS-RFC-0002 — v2 dual-trust register (Ed25519 sig + 2-cert X.509 chain).
+        .route("/v2/agents/register",     post(register_agent_v2))
+        .route("/v2/nodes/register",      post(register_node_v2))
         .route("/v1/agents/:nid/renew",   post(renew))
         .route("/v1/agents/:nid/revoke",  post(revoke_handler))
         .route("/v1/agents/:nid/verify",  get(verify_handler))

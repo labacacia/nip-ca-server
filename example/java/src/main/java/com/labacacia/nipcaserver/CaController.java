@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.labacacia.nipcaserver;
 
+import com.labacacia.nps.nip.AssuranceLevel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -63,6 +65,57 @@ public class CaController {
         String serial = db.nextSerial();
         Map<String, Object> cert = ca.issueCert(state.privateKey, caNid, nid, pubKey,
             caps, scope, days, serial, meta);
+
+        Map<String, Object> rec = new HashMap<>();
+        rec.put("nid", nid); rec.put("entity_type", entityType); rec.put("serial", serial);
+        rec.put("pub_key", pubKey); rec.put("capabilities", caps); rec.put("scope", scope);
+        rec.put("issued_by", caNid); rec.put("issued_at", cert.get("issued_at"));
+        rec.put("expires_at", cert.get("expires_at")); rec.put("metadata", meta);
+        db.insert(rec);
+
+        return ResponseEntity.status(201).body(Map.of(
+            "nid", nid, "serial", serial,
+            "issued_at", cert.get("issued_at"), "expires_at", cert.get("expires_at"),
+            "ident_frame", cert));
+    }
+
+    // ── v2 Register (RFC-0002 X.509 + Ed25519 dual-trust) ────────────────────
+
+    @PostMapping("/v2/agents/register")
+    public ResponseEntity<Map<String, Object>> registerAgentV2(@RequestBody Map<String, Object> body)
+            throws Exception {
+        return doRegisterX509(body, "agent", agentDays);
+    }
+
+    @PostMapping("/v2/nodes/register")
+    public ResponseEntity<Map<String, Object>> registerNodeV2(@RequestBody Map<String, Object> body)
+            throws Exception {
+        return doRegisterX509(body, "node", nodeDays);
+    }
+
+    @SuppressWarnings("unchecked")
+    private ResponseEntity<Map<String, Object>> doRegisterX509(
+            Map<String, Object> body, String entityType, int days) throws Exception {
+        String domain = caNid.contains(":") ? caNid.split(":")[caNid.split(":").length - 2] : "ca.local";
+        String nid = body.containsKey("nid") ? (String) body.get("nid")
+            : ca.generateNid(domain, entityType);
+
+        if (db.getActive(nid).isPresent())
+            return conflict("NIP-CA-NID-ALREADY-EXISTS", nid + " already has an active certificate");
+
+        String pubKey       = (String) body.get("pub_key");
+        List<String> caps   = body.containsKey("capabilities")
+            ? (List<String>) body.get("capabilities") : List.of();
+        Map<String, Object> scope = body.containsKey("scope")
+            ? (Map<String, Object>) body.get("scope") : Map.of();
+        Map<String, Object> meta = (Map<String, Object>) body.get("metadata");
+        AssuranceLevel level = body.containsKey("assurance_level")
+            ? AssuranceLevel.fromWire((String) body.get("assurance_level"))
+            : AssuranceLevel.ANONYMOUS;
+
+        String serial = db.nextSerial();
+        Map<String, Object> cert = ca.issueCertX509(state.keyPair, caNid, state.rootCert,
+            nid, pubKey, caps, scope, days, serial, meta, level, entityType);
 
         Map<String, Object> rec = new HashMap<>();
         rec.put("nid", nid); rec.put("entity_type", entityType); rec.put("serial", serial);
@@ -155,14 +208,18 @@ public class CaController {
     @GetMapping("/.well-known/nps-ca")
     public Map<String, Object> wellKnown() {
         String base = baseUrl.replaceAll("/$", "");
+        Map<String, Object> endpoints = new LinkedHashMap<>();
+        endpoints.put("register",     base + "/v1/agents/register");
+        endpoints.put("register_v2",  base + "/v2/agents/register");  // RFC-0002 X.509 + Ed25519
+        endpoints.put("verify",       base + "/v1/agents/{nid}/verify");
+        endpoints.put("ocsp",         base + "/v1/agents/{nid}/verify");
+        endpoints.put("crl",          base + "/v1/crl");
         return Map.of(
-            "nps_ca", "0.1", "issuer", caNid, "display_name", displayName,
+            "nps_ca", "0.2",
+            "issuer", caNid, "display_name", displayName,
             "public_key", state.pubKeyStr, "algorithms", List.of("ed25519"),
-            "endpoints", Map.of(
-                "register", base + "/v1/agents/register",
-                "verify",   base + "/v1/agents/{nid}/verify",
-                "ocsp",     base + "/v1/agents/{nid}/verify",
-                "crl",      base + "/v1/crl"),
+            "cert_formats", List.of("v1-proprietary", "v2-x509"),  // RFC-0002 §4.5
+            "endpoints", endpoints,
             "capabilities", List.of("agent", "node"),
             "max_cert_validity_days", Math.max(agentDays, nodeDays));
     }
@@ -181,11 +238,5 @@ public class CaController {
 
     private <T> ResponseEntity<T> conflict(String code, String msg) {
         return ResponseEntity.status(409).body((T) Map.of("error_code", code, "message", msg));
-    }
-}
-
-class Duration {
-    static java.time.Duration between(java.time.Instant a, java.time.Instant b) {
-        return java.time.Duration.between(a, b);
     }
 }

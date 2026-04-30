@@ -1,1 +1,11 @@
+// Foojay toolchain resolver — auto-downloads JDK 21 on hosts that don't have one.
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
 rootProject.name = 'nip-ca-server'
+
+// Composite build: the CA Server depends on the local Java SDK at impl/java/
+// for X.509 + ACME primitives (NPS-RFC-0002). Avoids duplicating NipX509Builder /
+// AcmeServer code into this reference port.
+includeBuild('../../../../impl/java')

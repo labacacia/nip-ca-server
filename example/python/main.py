@@ -25,20 +25,22 @@ DISPLAY_NAME  = os.environ.get("NIP_CA_DISPLAY_NAME", "NPS CA")
 AGENT_DAYS    = int(os.environ.get("NIP_CA_AGENT_VALIDITY_DAYS", "30"))
 NODE_DAYS     = int(os.environ.get("NIP_CA_NODE_VALIDITY_DAYS",  "90"))
 RENEWAL_DAYS  = int(os.environ.get("NIP_CA_RENEWAL_WINDOW_DAYS", "7"))
+ROOT_CERT_FILE = os.environ.get("NIP_CA_ROOT_CERT_FILE", "/data/ca.root.der")
 
 _ca_nid_domain = CA_NID.split(":")[-2] if CA_NID.count(":") >= 4 else "ca.local"
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="NIP CA Server", version="0.1.0")
+app = FastAPI(title="NIP CA Server", version="0.2.0")
 db: CaDb
 ca_priv: Any
 ca_pub_str: str
+ca_root_cert: Any  # x509.Certificate
 
 
 @app.on_event("startup")
 def startup() -> None:
-    global db, ca_priv, ca_pub_str
+    global db, ca_priv, ca_pub_str, ca_root_cert
     db = CaDb(DB_PATH)
     if not os.path.exists(KEY_FILE):
         ca_priv = ca_module.Ed25519PrivateKey.generate()
@@ -46,6 +48,8 @@ def startup() -> None:
     else:
         ca_priv = ca_module.load_key(KEY_FILE, CA_PASSPHRASE)
     ca_pub_str = ca_module.pub_key_string(ca_priv.public_key())
+    # NPS-RFC-0002 — load or generate the X.509 root cert (5-year self-signed).
+    ca_root_cert = ca_module.load_or_create_root_cert(ca_priv, CA_NID, ROOT_CERT_FILE)
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -56,6 +60,8 @@ class RegisterRequest(BaseModel):
     capabilities: list[str] = []
     scope: dict = Field(default_factory=dict)
     metadata: dict | None = None
+    # NPS-RFC-0003 — optional, only honoured by v2 register paths.
+    assurance_level: str | None = None
 
 
 class RevokeRequest(BaseModel):
@@ -102,6 +108,38 @@ def register_agent(req: RegisterRequest) -> JSONResponse:
 @app.post("/v1/nodes/register", status_code=201)
 def register_node(req: RegisterRequest) -> JSONResponse:
     return _register(req, "node", NODE_DAYS)
+
+
+# ── v2 Register (NPS-RFC-0002 X.509 + Ed25519 dual-trust) ────────────────────
+
+def _register_v2(req: RegisterRequest, entity_type: str, validity_days: int) -> JSONResponse:
+    nid = req.nid or ca_module.generate_nid(_ca_nid_domain, entity_type)
+    if db.get_active(nid):
+        raise HTTPException(409, {"error_code": "NIP-CA-NID-ALREADY-EXISTS",
+                                   "message": f"{nid} already has an active certificate"})
+    serial = db.next_serial()
+    cert = ca_module.issue_cert_x509(
+        ca_priv, CA_NID, ca_root_cert, nid, req.pub_key, entity_type,
+        req.capabilities, req.scope, validity_days, serial, req.metadata,
+    )
+    db.insert({"nid": nid, "entity_type": entity_type, "serial": serial,
+               "pub_key": req.pub_key, "capabilities": req.capabilities,
+               "scope": req.scope, "issued_by": CA_NID,
+               "issued_at": cert["issued_at"], "expires_at": cert["expires_at"],
+               "metadata": req.metadata})
+    return JSONResponse({"nid": nid, "serial": serial,
+                          "issued_at": cert["issued_at"], "expires_at": cert["expires_at"],
+                          "ident_frame": cert}, status_code=201)
+
+
+@app.post("/v2/agents/register", status_code=201)
+def register_agent_v2(req: RegisterRequest) -> JSONResponse:
+    return _register_v2(req, "agent", AGENT_DAYS)
+
+
+@app.post("/v2/nodes/register", status_code=201)
+def register_node_v2(req: RegisterRequest) -> JSONResponse:
+    return _register_v2(req, "node", NODE_DAYS)
 
 
 @app.post("/v1/agents/{nid:path}/renew")
@@ -184,16 +222,18 @@ def crl() -> JSONResponse:
 @app.get("/.well-known/nps-ca")
 def well_known() -> JSONResponse:
     return JSONResponse({
-        "nps_ca": "0.1",
+        "nps_ca": "0.2",
         "issuer": CA_NID,
         "display_name": DISPLAY_NAME,
         "public_key": ca_pub_str,
         "algorithms": ["ed25519"],
+        "cert_formats": ["v1-proprietary", "v2-x509"],   # NPS-RFC-0002 §4.5
         "endpoints": {
-            "register": f"{CA_BASE_URL}/v1/agents/register",
-            "verify":   f"{CA_BASE_URL}/v1/agents/{{nid}}/verify",
-            "ocsp":     f"{CA_BASE_URL}/v1/agents/{{nid}}/verify",
-            "crl":      f"{CA_BASE_URL}/v1/crl",
+            "register":     f"{CA_BASE_URL}/v1/agents/register",
+            "register_v2":  f"{CA_BASE_URL}/v2/agents/register",   # NPS-RFC-0002
+            "verify":       f"{CA_BASE_URL}/v1/agents/{{nid}}/verify",
+            "ocsp":         f"{CA_BASE_URL}/v1/agents/{{nid}}/verify",
+            "crl":          f"{CA_BASE_URL}/v1/crl",
         },
         "capabilities": ["agent", "node"],
         "max_cert_validity_days": max(AGENT_DAYS, NODE_DAYS),

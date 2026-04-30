@@ -5,6 +5,7 @@ package api
 
 import (
 	"crypto/ed25519"
+	cryptox509 "crypto/x509"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -26,6 +27,8 @@ type State struct {
 	AgentDays   int
 	NodeDays    int
 	RenewalDays int
+	// NPS-RFC-0002 — self-signed X.509 root cert (loaded/created at startup).
+	CaRootCert  *cryptox509.Certificate
 }
 
 // Router builds and returns the HTTP mux.
@@ -33,6 +36,9 @@ func Router(s *State) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/agents/register", s.registerAgent)
 	mux.HandleFunc("POST /v1/nodes/register", s.registerNode)
+	// NPS-RFC-0002 — v2 dual-trust register (Ed25519 sig + 2-cert X.509 chain).
+	mux.HandleFunc("POST /v2/agents/register", s.registerAgentV2)
+	mux.HandleFunc("POST /v2/nodes/register", s.registerNodeV2)
 	mux.HandleFunc("POST /v1/agents/{nid}/renew", s.renew)
 	mux.HandleFunc("POST /v1/agents/{nid}/revoke", s.revoke)
 	mux.HandleFunc("GET /v1/agents/{nid}/verify", s.verify)
@@ -63,6 +69,73 @@ func (s *State) registerAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *State) registerNode(w http.ResponseWriter, r *http.Request) {
 	s.register(w, r, "node")
+}
+
+func (s *State) registerAgentV2(w http.ResponseWriter, r *http.Request) {
+	s.registerV2(w, r, "agent")
+}
+
+func (s *State) registerNodeV2(w http.ResponseWriter, r *http.Request) {
+	s.registerV2(w, r, "node")
+}
+
+// registerV2 is the NPS-RFC-0002 dual-trust path: emits both the v1 Ed25519
+// signature and a 2-cert X.509 chain (leaf + self-signed root).
+func (s *State) registerV2(w http.ResponseWriter, r *http.Request, entityType string) {
+	var req registerReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "NIP-CA-BAD-REQUEST", "invalid JSON body")
+		return
+	}
+	if s.CaRootCert == nil {
+		jsonErr(w, http.StatusInternalServerError, "NIP-CA-INTERNAL",
+			"X.509 root cert not initialized")
+		return
+	}
+	domain := caDomain(s.CaNID)
+	nid := ""
+	if req.NID != nil {
+		nid = *req.NID
+	} else {
+		nid = ca.GenerateNID(domain, entityType)
+	}
+	existing, err := s.DB.GetActive(nid)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "NIP-CA-INTERNAL", err.Error())
+		return
+	}
+	if existing != nil {
+		jsonErr(w, http.StatusConflict, "NIP-CA-NID-ALREADY-EXISTS",
+			nid+" already has an active certificate")
+		return
+	}
+	days := s.AgentDays
+	if entityType == "node" {
+		days = s.NodeDays
+	}
+	serial, err := s.DB.NextSerial()
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "NIP-CA-INTERNAL", err.Error())
+		return
+	}
+	cert, err := ca.IssueCertX509(s.SK, s.CaNID, s.CaRootCert, nid, req.PubKey, entityType,
+		req.Capabilities, req.Scope, days, serial, req.Metadata)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "NIP-CA-INTERNAL", err.Error())
+		return
+	}
+	issuedAt, _ := cert["issued_at"].(string)
+	expiresAt, _ := cert["expires_at"].(string)
+	_, _ = s.DB.Insert(&db.InsertRec{
+		NID: nid, EntityType: entityType, Serial: serial,
+		PubKey: req.PubKey, Capabilities: req.Capabilities, Scope: req.Scope,
+		IssuedBy: s.CaNID, IssuedAt: issuedAt, ExpiresAt: expiresAt, Metadata: req.Metadata,
+	})
+	jsonResp(w, http.StatusCreated, map[string]any{
+		"nid": nid, "serial": serial,
+		"issued_at": issuedAt, "expires_at": expiresAt,
+		"ident_frame": cert,
+	})
 }
 
 func (s *State) register(w http.ResponseWriter, r *http.Request, entityType string) {
@@ -241,13 +314,15 @@ func (s *State) crl(w http.ResponseWriter, _ *http.Request) {
 func (s *State) wellKnown(w http.ResponseWriter, _ *http.Request) {
 	base := strings.TrimRight(s.BaseURL, "/")
 	jsonResp(w, http.StatusOK, map[string]any{
-		"nps_ca": "0.1", "issuer": s.CaNID, "display_name": s.DisplayName,
-		"public_key": s.PubKeyStr, "algorithms": []string{"ed25519"},
+		"nps_ca": "0.2", "issuer": s.CaNID, "display_name": s.DisplayName,
+		"public_key":   s.PubKeyStr, "algorithms": []string{"ed25519"},
+		"cert_formats": []string{"v1-proprietary", "v2-x509"},   // NPS-RFC-0002 §4.5
 		"endpoints": map[string]any{
-			"register": base + "/v1/agents/register",
-			"verify":   base + "/v1/agents/{nid}/verify",
-			"ocsp":     base + "/v1/agents/{nid}/verify",
-			"crl":      base + "/v1/crl",
+			"register":    base + "/v1/agents/register",
+			"register_v2": base + "/v2/agents/register",            // NPS-RFC-0002
+			"verify":      base + "/v1/agents/{nid}/verify",
+			"ocsp":        base + "/v1/agents/{nid}/verify",
+			"crl":         base + "/v1/crl",
 		},
 		"capabilities":           []string{"agent", "node"},
 		"max_cert_validity_days": max(s.AgentDays, s.NodeDays),

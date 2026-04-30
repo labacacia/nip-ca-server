@@ -24,21 +24,26 @@ docker compose up -d
 | `NIP_CA_AGENT_VALIDITY_DAYS` | 否 | `30` | Agent 证书有效期 |
 | `NIP_CA_NODE_VALIDITY_DAYS` | 否 | `90` | Node 证书有效期 |
 | `NIP_CA_RENEWAL_WINDOW_DAYS` | 否 | `7` | 到期前多少天开放续签 |
+| `NIP_CA_ROOT_CERT_FILE` | 否 | `/data/ca.root.der` | RFC-0002 自签 X.509 root 证书路径（首次启动自动生成，5 年有效期） |
 | `PORT` | 否 | `17440` | HTTP 端口 |
 
 ## API
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/v1/agents/register` | 注册 Agent，签发 IdentFrame |
+| POST | `/v1/agents/register` | 注册 Agent，签发 v1 IdentFrame |
 | POST | `/v1/agents/{nid}/renew` | 续签证书 |
 | POST | `/v1/agents/{nid}/revoke` | 吊销证书 |
 | GET | `/v1/agents/{nid}/verify` | 验证 / OCSP 检查 |
-| POST | `/v1/nodes/register` | 注册 Node，签发 IdentFrame |
+| POST | `/v1/nodes/register` | 注册 Node，签发 v1 IdentFrame |
 | GET | `/v1/ca/cert` | 获取 CA 公钥 |
 | GET | `/v1/crl` | 证书吊销列表 |
-| GET | `/.well-known/nps-ca` | CA 发现文档 |
+| **POST** | **`/v2/agents/register`** | **NPS-RFC-0002 —— 签发双信任 v2 IdentFrame（v1 Ed25519 签名 + 2 段 X.509 链）** |
+| **POST** | **`/v2/nodes/register`** | **NPS-RFC-0002 —— 节点角色 NID 同形态** |
+| GET | `/.well-known/nps-ca` | CA 发现文档（现公布 `cert_formats` 与 `register_v2` URL） |
 | GET | `/health` | 健康检查 |
+
+FastAPI 上的 ACME `agent-01` server 端点暂不暴露（与 `tools/nip-ca-server/` 的 C# 实现保持一致）；SDK 内的 `nps_sdk.nip.acme.AcmeServer` 是 ACME 的 canonical 参考实现，生产部署可独立挂载。
 
 ## 本地开发
 

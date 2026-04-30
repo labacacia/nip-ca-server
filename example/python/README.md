@@ -24,20 +24,25 @@ docker compose up -d
 | `NIP_CA_AGENT_VALIDITY_DAYS` | No | `30` | Agent certificate validity |
 | `NIP_CA_NODE_VALIDITY_DAYS` | No | `90` | Node certificate validity |
 | `NIP_CA_RENEWAL_WINDOW_DAYS` | No | `7` | Days before expiry that renewal opens |
+| `NIP_CA_ROOT_CERT_FILE` | No | `/data/ca.root.der` | RFC-0002 self-signed X.509 root cert (auto-generated on first boot, 5-year validity) |
 | `PORT` | No | `17440` | HTTP port |
 
 ## API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/v1/agents/register` | Register Agent, issue IdentFrame |
+| POST | `/v1/agents/register` | Register Agent, issue v1 IdentFrame |
 | POST | `/v1/agents/{nid}/renew` | Renew certificate |
 | POST | `/v1/agents/{nid}/revoke` | Revoke certificate |
 | GET | `/v1/agents/{nid}/verify` | Verify / OCSP check |
-| POST | `/v1/nodes/register` | Register Node, issue IdentFrame |
+| POST | `/v1/nodes/register` | Register Node, issue v1 IdentFrame |
 | GET | `/v1/ca/cert` | CA public key |
 | GET | `/v1/crl` | Certificate Revocation List |
-| GET | `/.well-known/nps-ca` | CA discovery document |
+| **POST** | **`/v2/agents/register`** | **NPS-RFC-0002 — issue dual-trust v2 IdentFrame (v1 Ed25519 sig + 2-cert X.509 chain)** |
+| **POST** | **`/v2/nodes/register`** | **NPS-RFC-0002 — same shape for node-role NIDs** |
+| GET | `/.well-known/nps-ca` | CA discovery document (now advertises `cert_formats` + `register_v2` URL) |
+
+ACME `agent-01` server endpoints on the FastAPI app are not exposed in alpha.4 (matches `tools/nip-ca-server/` C# parity); the SDK's `nps_sdk.nip.acme.AcmeServer` is the canonical reference for ACME and can be embedded in production deployments separately.
 | GET | `/health` | Health check |
 
 ## Local Development

@@ -1,6 +1,6 @@
 [package]
 name    = "nip-ca-server"
-version = "1.0.0-alpha.3"
+version = "1.0.0-alpha.4"
 edition = "2021"
 license = "Apache-2.0"
 
@@ -25,3 +25,7 @@ base64        = "0.22"
 anyhow        = "1"
 tracing            = "0.1"
 tracing-subscriber = "0.3"
+
+# NPS-RFC-0002 — X.509 issuance (inlined like Python / Go / TS reference ports).
+rcgen         = { version = "0.13", default-features = false, features = ["pem", "crypto", "ring", "x509-parser"] }
+time          = { version = "0.3",  default-features = false }

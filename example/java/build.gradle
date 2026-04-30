@@ -5,7 +5,7 @@ plugins {
 }
 
 group   = 'com.labacacia'
-version = '1.0.0-alpha.3'
+version = '1.0.0-alpha.4'
 
 java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
 
@@ -15,6 +15,19 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.xerial:sqlite-jdbc:3.47.1.0'
     implementation 'org.slf4j:slf4j-api'
+
+    // NPS Java SDK (NPS-RFC-0002 X.509 + ACME primitives) via composite build.
+    implementation 'com.labacacia.nps:nps-java:1.0.0-alpha.4'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 springBoot { mainClass = 'com.labacacia.nipcaserver.NipCaApplication' }

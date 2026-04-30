@@ -23,11 +23,20 @@ docker compose up -d
 | `NIP_CA_AGENT_VALIDITY_DAYS` | 否 | `30` | |
 | `NIP_CA_NODE_VALIDITY_DAYS` | 否 | `90` | |
 | `NIP_CA_RENEWAL_WINDOW_DAYS` | 否 | `7` | |
+| `NIP_CA_ROOT_CERT_FILE` | 否 | `/data/ca.root.der` | RFC-0002 自签 X.509 root 证书路径（首次启动自动生成，5 年有效期） |
 | `PORT` | 否 | `17440` | |
 
 ## API
 
-与其他语言的 NIP CA Server 实现共用同一组端点 —— 详见 [NPS-3 §8](../../spec/NPS-3-NIP.md)。
+v1 端点（legacy）：与其他语言的 NIP CA Server 实现共用同一组端点 —— 详见 [NPS-3 §8](../../spec/NPS-3-NIP.md)。
+
+**v2 端点（NPS-RFC-0002 X.509 + Ed25519 双信任）—— alpha.4 新增**：
+
+- `POST /v2/agents/register` —— 签发同时含 v1 Ed25519 签名 AND 2 段 X.509 链（leaf + 自签 root）的 IdentFrame，`cert_format: "v2-x509"`。
+- `POST /v2/nodes/register` —— 节点角色 NID 同形态。
+- `GET /.well-known/nps-ca` —— 现在公布 `cert_formats: ["v1-proprietary", "v2-x509"]` 与新增的 `register_v2` 端点 URL。
+
+Spring app 上的 ACME `agent-01` server 端点暂不暴露（与 `tools/nip-ca-server/` 的 C# 实现保持一致）；SDK 内的 `com.labacacia.nps.nip.acme.AcmeServer` 是 ACME 的 canonical 参考实现，生产部署可独立挂载。
 
 ## 本地开发
 
@@ -42,5 +51,6 @@ NIP_CA_NID=urn:nps:org:ca.local \
 
 - **运行时**：Java 21（eclipse-temurin）
 - **框架**：Spring Boot 3.4
-- **加密**：Java 标准库（Ed25519 + AES/GCM + PBKDF2WithHmacSHA256）
+- **加密**：Java 标准库（Ed25519 + AES/GCM + PBKDF2WithHmacSHA256）+ BouncyCastle（仅用 X.509 builder API，由 `nps-java` 传递引入）
 - **存储**：SQLite（sqlite-jdbc）
+- **NPS SDK**：通过 Gradle composite build 依赖 `impl/java/`（`includeBuild('../../../../impl/java')`）
