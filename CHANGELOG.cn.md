@@ -8,6 +8,28 @@
 
 ---
 
+## [1.0.0-alpha.4] —— 2026-04-30
+
+### 跟随套件的协议变更
+
+本次跟随 NPS 套件 `v1.0.0-alpha.4`。CA Server 本身代码不变 ——
+v1 IdentFrame 签发接口与 alpha.3 完全一致 —— 但底层
+[`LabAcacia.NPS.NIP`](https://www.nuget.org/packages/LabAcacia.NPS.NIP/)
+NuGet 依赖升至 `v1.0.0-alpha.4`，带来以下能力：
+
+- **NPS-RFC-0002 Phase A** —— `LabAcacia.NPS.NIP` 在 v1 Ed25519
+  IdentFrame 旁新增 X.509 NID 证书签发（dual-trust 签名链路）。
+- **NPS-RFC-0002 Phase B** —— SDK 层 ACME `agent-01` 全链路
+  （`AcmeServer` / `AcmeClient`）。
+- **NPS-RFC-0001 Phase 2** —— NCP 连接前导帮助函数。
+
+服务器对外的 HTTP 接口仍是 alpha.3 的 v1 端点。X.509 签发端点
+（`/v2/agents/*`）是后续添加项 —— 等 SDK 内 X.509 + ACME 运行时稳定
+后再上；现在就要 X.509 的生产部署可以直接嵌入 SDK 的
+`nip.acme.AcmeServer`。
+
+---
+
 ## [1.0.0-alpha.3] —— 2026-04-26
 
 ### 新增
@@ -57,6 +79,7 @@
 
 ---
 
+[1.0.0-alpha.4]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.4
 [1.0.0-alpha.3]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.3
 [1.0.0-alpha.2]: https://gitee.com/labacacia/NPS-Release/releases/tag/v1.0.0-alpha.2
 [1.0.0-alpha.1]: https://gitee.com/labacacia/NPS-Release/releases/tag/v1.0.0-alpha.1

@@ -8,6 +8,30 @@ Until NPS reaches v1.0 stable, every repository in the suite is synchronized to 
 
 ---
 
+## [1.0.0-alpha.4] — 2026-04-30
+
+### Tracking the suite
+
+This release tracks NPS suite `v1.0.0-alpha.4`. The CA Server itself
+ships unchanged — its v1 IdentFrame issuance surface is identical to
+alpha.3 — but the underlying
+[`LabAcacia.NPS.NIP`](https://www.nuget.org/packages/LabAcacia.NPS.NIP/)
+NuGet dependency is bumped to `v1.0.0-alpha.4`, which adds:
+
+- **NPS-RFC-0002 Phase A** — X.509 NID certificates alongside v1 Ed25519
+  IdentFrames in `LabAcacia.NPS.NIP` (dual-trust signing path).
+- **NPS-RFC-0002 Phase B** — ACME `agent-01` round-trip
+  (`AcmeServer` / `AcmeClient`) at the SDK layer.
+- **NPS-RFC-0001 Phase 2** — NCP connection preamble helpers.
+
+The server's HTTP surface remains the alpha.3 v1 endpoints. X.509
+issuance endpoints (`/v2/agents/*`) are a future addition that will
+land once the X.509 + ACME runtime has stabilised in the SDK; production
+deployments wanting X.509 today should embed `nip.acme.AcmeServer` from
+the SDK directly.
+
+---
+
 ## [1.0.0-alpha.3] — 2026-04-26
 
 ### Added
@@ -61,6 +85,7 @@ for the full suite-level rollup.
 
 ---
 
+[1.0.0-alpha.4]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.4
 [1.0.0-alpha.3]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.3
 [1.0.0-alpha.2]: https://github.com/labacacia/NPS-Release/releases/tag/v1.0.0-alpha.2
 [1.0.0-alpha.1]: https://github.com/labacacia/NPS-Release/releases/tag/v1.0.0-alpha.1
