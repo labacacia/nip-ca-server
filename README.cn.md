@@ -107,7 +107,7 @@ dotnet run --project NPS.NipCaServer.csproj
 每个 release tag 都会推到 GitHub Container Registry：
 
 ```bash
-docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.3
+docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.4
 ```
 
 本地构建：

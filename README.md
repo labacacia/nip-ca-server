@@ -113,7 +113,7 @@ Pre-built images are pushed to GitHub Container Registry on every
 release tag:
 
 ```bash
-docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.3
+docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.4
 ```
 
 Build locally:
