@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -27,27 +29,63 @@ public class CaController {
     @Value("${nip.ca.agent-validity-days:30}") private int agentDays;
     @Value("${nip.ca.node-validity-days:90}")  private int nodeDays;
     @Value("${nip.ca.renewal-window-days:7}")  private int renewalDays;
+    @Value("${nip.ca.operator-api-key:}")      private String operatorApiKey;
 
     private static final DateTimeFormatter ISO =
         DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'").withZone(ZoneOffset.UTC);
 
+    private static final Set<String> VALID_REASONS = Set.of(
+        "key_compromise", "ca_compromise", "affiliation_changed",
+        "superseded", "cessation_of_operation");
+
+    // ── Auth ──────────────────────────────────────────────────────────────────
+
+    private boolean isAuthorized(String auth) {
+        if (operatorApiKey == null || operatorApiKey.isEmpty()) return true;
+        if (auth == null || !auth.startsWith("Bearer ")) return false;
+        String provided = auth.substring(7);
+        return MessageDigest.isEqual(
+            provided.getBytes(StandardCharsets.UTF_8),
+            operatorApiKey.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private <T> ResponseEntity<T> unauthorized() {
+        return ResponseEntity.status(401)
+            .body((T) Map.of("error_code", "NIP-CA-UNAUTHORIZED",
+                             "message", "Valid operator Bearer token required."));
+    }
+
+    private boolean isValidPubKey(String key) {
+        return key != null && key.startsWith("ed25519:") && key.length() > 8;
+    }
+
     // ── Register ──────────────────────────────────────────────────────────────
 
     @PostMapping("/v1/agents/register")
-    public ResponseEntity<Map<String, Object>> registerAgent(@RequestBody Map<String, Object> body)
-            throws Exception {
+    public ResponseEntity<Map<String, Object>> registerAgent(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "Authorization", required = false) String auth) throws Exception {
+        if (!isAuthorized(auth)) return unauthorized();
         return doRegister(body, "agent", agentDays);
     }
 
     @PostMapping("/v1/nodes/register")
-    public ResponseEntity<Map<String, Object>> registerNode(@RequestBody Map<String, Object> body)
-            throws Exception {
+    public ResponseEntity<Map<String, Object>> registerNode(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "Authorization", required = false) String auth) throws Exception {
+        if (!isAuthorized(auth)) return unauthorized();
         return doRegister(body, "node", nodeDays);
     }
 
     @SuppressWarnings("unchecked")
     private ResponseEntity<Map<String, Object>> doRegister(
             Map<String, Object> body, String entityType, int days) throws Exception {
+        String pubKey = (String) body.get("pub_key");
+        if (!isValidPubKey(pubKey))
+            return ResponseEntity.badRequest().body(Map.of(
+                "error_code", "NIP-CA-BAD-REQUEST",
+                "message", "pub_key must be 'ed25519:<base64url>'."));
+
         String domain = caNid.contains(":") ? caNid.split(":")[caNid.split(":").length - 2] : "ca.local";
         String nid = body.containsKey("nid") ? (String) body.get("nid")
             : ca.generateNid(domain, entityType);
@@ -55,8 +93,7 @@ public class CaController {
         if (db.getActive(nid).isPresent())
             return conflict("NIP-CA-NID-ALREADY-EXISTS", nid + " already has an active certificate");
 
-        String pubKey       = (String) body.get("pub_key");
-        List<String> caps   = body.containsKey("capabilities")
+        List<String> caps = body.containsKey("capabilities")
             ? (List<String>) body.get("capabilities") : List.of();
         Map<String, Object> scope = body.containsKey("scope")
             ? (Map<String, Object>) body.get("scope") : Map.of();
@@ -79,23 +116,33 @@ public class CaController {
             "ident_frame", cert));
     }
 
-    // ── v2 Register (RFC-0002 X.509 + Ed25519 dual-trust) ────────────────────
+    // ── register-x509 (NPS-RFC-0002 X.509 + Ed25519 dual-trust) ─────────────
 
-    @PostMapping("/v2/agents/register")
-    public ResponseEntity<Map<String, Object>> registerAgentV2(@RequestBody Map<String, Object> body)
-            throws Exception {
+    @PostMapping("/v1/agents/register-x509")
+    public ResponseEntity<Map<String, Object>> registerAgentX509(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "Authorization", required = false) String auth) throws Exception {
+        if (!isAuthorized(auth)) return unauthorized();
         return doRegisterX509(body, "agent", agentDays);
     }
 
-    @PostMapping("/v2/nodes/register")
-    public ResponseEntity<Map<String, Object>> registerNodeV2(@RequestBody Map<String, Object> body)
-            throws Exception {
+    @PostMapping("/v1/nodes/register-x509")
+    public ResponseEntity<Map<String, Object>> registerNodeX509(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "Authorization", required = false) String auth) throws Exception {
+        if (!isAuthorized(auth)) return unauthorized();
         return doRegisterX509(body, "node", nodeDays);
     }
 
     @SuppressWarnings("unchecked")
     private ResponseEntity<Map<String, Object>> doRegisterX509(
             Map<String, Object> body, String entityType, int days) throws Exception {
+        String pubKey = (String) body.get("pub_key");
+        if (!isValidPubKey(pubKey))
+            return ResponseEntity.badRequest().body(Map.of(
+                "error_code", "NIP-CA-BAD-REQUEST",
+                "message", "pub_key must be 'ed25519:<base64url>'."));
+
         String domain = caNid.contains(":") ? caNid.split(":")[caNid.split(":").length - 2] : "ca.local";
         String nid = body.containsKey("nid") ? (String) body.get("nid")
             : ca.generateNid(domain, entityType);
@@ -103,8 +150,7 @@ public class CaController {
         if (db.getActive(nid).isPresent())
             return conflict("NIP-CA-NID-ALREADY-EXISTS", nid + " already has an active certificate");
 
-        String pubKey       = (String) body.get("pub_key");
-        List<String> caps   = body.containsKey("capabilities")
+        List<String> caps = body.containsKey("capabilities")
             ? (List<String>) body.get("capabilities") : List.of();
         Map<String, Object> scope = body.containsKey("scope")
             ? (Map<String, Object>) body.get("scope") : Map.of();
@@ -133,7 +179,22 @@ public class CaController {
     // ── Renew ─────────────────────────────────────────────────────────────────
 
     @PostMapping("/v1/agents/{nid}/renew")
-    public ResponseEntity<Map<String, Object>> renew(@PathVariable String nid) throws Exception {
+    public ResponseEntity<Map<String, Object>> renewAgent(
+            @PathVariable String nid,
+            @RequestHeader(value = "Authorization", required = false) String auth) throws Exception {
+        if (!isAuthorized(auth)) return unauthorized();
+        return doRenew(nid);
+    }
+
+    @PostMapping("/v1/nodes/{nid}/renew")
+    public ResponseEntity<Map<String, Object>> renewNode(
+            @PathVariable String nid,
+            @RequestHeader(value = "Authorization", required = false) String auth) throws Exception {
+        if (!isAuthorized(auth)) return unauthorized();
+        return doRenew(nid);
+    }
+
+    private ResponseEntity<Map<String, Object>> doRenew(String nid) throws Exception {
         Optional<DbService.CertRecord> opt = db.getActive(nid);
         if (opt.isEmpty()) return notFound(nid);
         DbService.CertRecord rec = opt.get();
@@ -166,9 +227,29 @@ public class CaController {
     // ── Revoke ────────────────────────────────────────────────────────────────
 
     @PostMapping("/v1/agents/{nid}/revoke")
-    public ResponseEntity<Map<String, Object>> revoke(
-            @PathVariable String nid, @RequestBody Map<String, Object> body) throws Exception {
+    public ResponseEntity<Map<String, Object>> revokeAgent(
+            @PathVariable String nid,
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "Authorization", required = false) String auth) throws Exception {
+        if (!isAuthorized(auth)) return unauthorized();
+        return doRevoke(nid, body);
+    }
+
+    @PostMapping("/v1/nodes/{nid}/revoke")
+    public ResponseEntity<Map<String, Object>> revokeNode(
+            @PathVariable String nid,
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "Authorization", required = false) String auth) throws Exception {
+        if (!isAuthorized(auth)) return unauthorized();
+        return doRevoke(nid, body);
+    }
+
+    private ResponseEntity<Map<String, Object>> doRevoke(String nid, Map<String, Object> body) {
         String reason = body.containsKey("reason") ? (String) body.get("reason") : "cessation_of_operation";
+        if (!VALID_REASONS.contains(reason))
+            return ResponseEntity.badRequest().body(Map.of(
+                "error_code", "NIP-CA-BAD-REQUEST",
+                "message", "Invalid revocation reason. Allowed: " + String.join(", ", VALID_REASONS)));
         if (!db.revoke(nid, reason))
             return notFound(nid);
         return ResponseEntity.ok(Map.of("nid", nid,
@@ -178,7 +259,16 @@ public class CaController {
     // ── Verify ────────────────────────────────────────────────────────────────
 
     @GetMapping("/v1/agents/{nid}/verify")
-    public ResponseEntity<Map<String, Object>> verify(@PathVariable String nid) throws Exception {
+    public ResponseEntity<Map<String, Object>> verifyAgent(@PathVariable String nid) {
+        return doVerify(nid);
+    }
+
+    @GetMapping("/v1/nodes/{nid}/verify")
+    public ResponseEntity<Map<String, Object>> verifyNode(@PathVariable String nid) {
+        return doVerify(nid);
+    }
+
+    private ResponseEntity<Map<String, Object>> doVerify(String nid) {
         Optional<DbService.CertRecord> opt = db.getActive(nid);
         if (opt.isEmpty()) return notFound(nid);
         DbService.CertRecord rec = opt.get();
@@ -209,16 +299,16 @@ public class CaController {
     public Map<String, Object> wellKnown() {
         String base = baseUrl.replaceAll("/$", "");
         Map<String, Object> endpoints = new LinkedHashMap<>();
-        endpoints.put("register",     base + "/v1/agents/register");
-        endpoints.put("register_v2",  base + "/v2/agents/register");  // RFC-0002 X.509 + Ed25519
-        endpoints.put("verify",       base + "/v1/agents/{nid}/verify");
-        endpoints.put("ocsp",         base + "/v1/agents/{nid}/verify");
-        endpoints.put("crl",          base + "/v1/crl");
+        endpoints.put("register",      base + "/v1/agents/register");
+        endpoints.put("register_x509", base + "/v1/agents/register-x509");  // NPS-RFC-0002 X.509 + Ed25519
+        endpoints.put("verify",        base + "/v1/agents/{nid}/verify");
+        endpoints.put("ocsp",          base + "/v1/agents/{nid}/verify");
+        endpoints.put("crl",           base + "/v1/crl");
         return Map.of(
             "nps_ca", "0.2",
             "issuer", caNid, "display_name", displayName,
             "public_key", state.pubKeyStr, "algorithms", List.of("ed25519"),
-            "cert_formats", List.of("v1-proprietary", "v2-x509"),  // RFC-0002 §4.5
+            "cert_formats", List.of("v1-proprietary", "v2-x509"),  // NPS-RFC-0002 §4.5
             "endpoints", endpoints,
             "capabilities", List.of("agent", "node"),
             "max_cert_validity_days", Math.max(agentDays, nodeDays));

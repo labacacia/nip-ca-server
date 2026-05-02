@@ -28,10 +28,11 @@ func main() {
 	rootCertFile := envStr("NIP_CA_ROOT_CERT_FILE", "/data/ca.root.der")
 	dbPath       := envStr("NIP_CA_DB_PATH",        "/data/ca.db")
 	displayName  := envStr("NIP_CA_DISPLAY_NAME", "NPS CA")
-	agentDays    := envInt("NIP_CA_AGENT_VALIDITY_DAYS", 30)
-	nodeDays     := envInt("NIP_CA_NODE_VALIDITY_DAYS",  90)
-	renewalDays  := envInt("NIP_CA_RENEWAL_WINDOW_DAYS", 7)
-	port         := envStr("PORT", "17440")
+	agentDays      := envInt("NIP_CA_AGENT_VALIDITY_DAYS", 30)
+	nodeDays       := envInt("NIP_CA_NODE_VALIDITY_DAYS",  90)
+	renewalDays    := envInt("NIP_CA_RENEWAL_WINDOW_DAYS", 7)
+	operatorApiKey := envStr("NIP_CA_OPERATOR_API_KEY", "")
+	port           := envStr("PORT", "17440")
 
 	sk := loadOrGenKey(keyFile, passphrase)
 
@@ -49,16 +50,17 @@ func main() {
 	}
 
 	state := &api.State{
-		SK:          sk,
-		PubKeyStr:   ca.PubKeyString(sk.Public().(ed25519.PublicKey)),
-		DB:          store,
-		CaNID:       caNID,
-		BaseURL:     baseURL,
-		DisplayName: displayName,
-		AgentDays:   agentDays,
-		NodeDays:    nodeDays,
-		RenewalDays: renewalDays,
-		CaRootCert:  caRootCert,
+		SK:             sk,
+		PubKeyStr:      ca.PubKeyString(sk.Public().(ed25519.PublicKey)),
+		DB:             store,
+		CaNID:          caNID,
+		BaseURL:        baseURL,
+		DisplayName:    displayName,
+		AgentDays:      agentDays,
+		NodeDays:       nodeDays,
+		RenewalDays:    renewalDays,
+		OperatorApiKey: operatorApiKey,
+		CaRootCert:     caRootCert,
 	}
 
 	srv := &http.Server{

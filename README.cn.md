@@ -29,7 +29,8 @@ Ed25519 NID 证书。
 - **PostgreSQL** 存储（Docker Compose 自带 Postgres 16 sidecar）
 - **OCSP** + **CRL** + **`/.well-known/nps-ca`** 发现端点
 - **单 Docker 镜像**，非 root 运行，内置 healthcheck
-- 开放 API —— 纯 REST / JSON，无私有鉴权层
+- **运营方鉴权** —— 可选 Bearer token，保护所有写入端点
+- **ACME** —— 可选，支持 RFC 8555 + NPS-RFC-0002 `agent-01` 挑战（设置 `NIPCA__ACMEENABLED=true` 开启）
 
 ## 快速开始
 
@@ -68,6 +69,10 @@ curl http://localhost:17435/health
 | `NIPCA__NODECERTVALIDITYDAYS` | 否 | `90` | Node 证书有效期 |
 | `NIPCA__RENEWALWINDOWDAYS` | 否 | `7` | 到期前多少天可续签 |
 | `NIPCA__NORMALIZEOCSPRESPONSETIME` | 否 | `true` | OCSP `producedAt` 取整到秒 |
+| `NIPCA__OPERATORAPIKEY` | 否 | — | 写入端点所需的 Bearer token；不设置则禁用鉴权（仅限开发环境） |
+| `NIPCA__ALLOWEDCAPABILITIES` | 否 | — | 可授权能力白名单（逗号分隔）；请求包含未列举能力时返回 403 |
+| `NIPCA__ACMEENABLED` | 否 | `false` | 启用 ACME RFC 8555 + `agent-01` 挑战（NPS-RFC-0002） |
+| `NIPCA__ACMEPATHPREFIX` | 否 | `/acme` | ACME 端点的 HTTP 路由前缀 |
 
 ### TLS
 
@@ -78,17 +83,22 @@ curl http://localhost:17435/health
 
 | 方法 | 路径 | 用途 |
 |------|------|------|
-| `POST` | `/v1/agents/register` | 注册 Agent，颁发 `IdentFrame` |
+| `POST` | `/v1/agents/register` | 注册 Agent，颁发 `IdentFrame`（Ed25519） |
+| `POST` | `/v1/agents/register-x509` | 注册 Agent，颁发双信任帧（Ed25519 + X.509 链，NPS-RFC-0002） |
 | `POST` | `/v1/agents/{nid}/renew` | 续签 Agent 证书 |
 | `POST` | `/v1/agents/{nid}/revoke` | 吊销 Agent 证书 |
 | `GET`  | `/v1/agents/{nid}/verify` | 查询 / OCSP 验证某 Agent NID |
-| `POST` | `/v1/nodes/register` | 注册 Node，颁发 `IdentFrame` |
+| `POST` | `/v1/nodes/register` | 注册 Node，颁发 `IdentFrame`（Ed25519） |
+| `POST` | `/v1/nodes/register-x509` | 注册 Node，颁发双信任帧（Ed25519 + X.509 链，NPS-RFC-0002） |
 | `POST` | `/v1/nodes/{nid}/renew` | 续签 Node 证书 |
 | `POST` | `/v1/nodes/{nid}/revoke` | 吊销 Node 证书 |
-| `GET`  | `/v1/ca/cert` | CA 公钥（PEM） |
+| `GET`  | `/v1/nodes/{nid}/verify` | 查询 / OCSP 验证某 Node NID |
+| `GET`  | `/v1/ca/cert` | CA 公钥 |
 | `GET`  | `/v1/crl` | 证书吊销列表 |
 | `GET`  | `/.well-known/nps-ca` | CA 发现文档 |
 | `GET`  | `/health` | 健康检查（就绪后返回 200） |
+
+写入端点（`register`、`register-x509`、`renew`、`revoke`）在设置了 `NIPCA__OPERATORAPIKEY` 时需携带 `Authorization: Bearer <token>` 请求头。
 
 字段级 schema 见 [NPS-3 §8](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md)。
 
@@ -107,7 +117,7 @@ dotnet run --project NPS.NipCaServer.csproj
 每个 release tag 都会推到 GitHub Container Registry：
 
 ```bash
-docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.4
+docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.5
 ```
 
 本地构建：

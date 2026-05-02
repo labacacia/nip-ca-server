@@ -5,8 +5,8 @@ mod db;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
-    response::{IntoResponse, Json},
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Json, Response},
     routing::{get, post},
     Router,
 };
@@ -19,27 +19,29 @@ use std::{env, net::SocketAddr, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 
 #[derive(Clone)]
 struct AppState {
-    ca:             Arc<ca::Ca>,
-    db:             Arc<CaDb>,
-    ca_nid:         String,
-    base_url:       String,
-    display_name:   String,
-    agent_days:     i64,
-    node_days:      i64,
-    renewal_days:   i64,
+    ca:              Arc<ca::Ca>,
+    db:              Arc<CaDb>,
+    ca_nid:          String,
+    base_url:        String,
+    display_name:    String,
+    agent_days:      i64,
+    node_days:       i64,
+    renewal_days:    i64,
+    operator_api_key: Option<String>,
     /// NPS-RFC-0002 — self-signed X.509 root cert (loaded/created at startup).
-    ca_root_cert:   Arc<rcgen::Certificate>,
+    ca_root_cert:    Arc<rcgen::Certificate>,
 }
 
 // ── Models ─────────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct RegisterReq {
-    nid:          Option<String>,
-    pub_key:      String,
-    capabilities: Option<Vec<String>>,
-    scope:        Option<Map<String, Value>>,
-    metadata:     Option<Map<String, Value>>,
+    nid:            Option<String>,
+    pub_key:        String,
+    capabilities:   Option<Vec<String>>,
+    scope:          Option<Map<String, Value>>,
+    metadata:       Option<Map<String, Value>>,
+    assurance_level: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -47,23 +49,77 @@ struct RevokeReq {
     reason: Option<String>,
 }
 
+// ── Auth & validation helpers ──────────────────────────────────────────────────
+
+fn is_authorized(s: &AppState, headers: &HeaderMap) -> bool {
+    let Some(ref key) = s.operator_api_key else { return true; };
+    let Some(val) = headers.get("authorization") else { return false; };
+    let Ok(val) = val.to_str() else { return false; };
+    let provided = val.strip_prefix("Bearer ").unwrap_or("").trim();
+    provided.len() == key.len()
+        && provided.bytes().zip(key.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+}
+
+fn unauthorized_resp() -> Response {
+    (StatusCode::UNAUTHORIZED, Json(json!({
+        "error_code": "NIP-CA-UNAUTHORIZED",
+        "message": "Valid operator Bearer token required."
+    }))).into_response()
+}
+
+fn validate_register(pub_key: &str, nid: Option<&str>) -> Result<(), String> {
+    if pub_key.is_empty() || !pub_key.starts_with("ed25519:") || pub_key.len() <= 8 {
+        return Err("pub_key must be 'ed25519:<base64url>'.".into());
+    }
+    if let Some(id) = nid {
+        let valid = !id.is_empty() && id.len() <= 256
+            && id.chars().all(|c| c.is_alphanumeric() || "._:@/-".contains(c));
+        if !valid { return Err("nid contains invalid characters.".into()); }
+    }
+    Ok(())
+}
+
+const VALID_REASONS: &[&str] = &[
+    "key_compromise", "ca_compromise", "affiliation_changed",
+    "superseded", "cessation_of_operation",
+];
+
 // ── Handlers ───────────────────────────────────────────────────────────────────
 
-async fn register_agent(State(s): State<AppState>, Json(req): Json<RegisterReq>)
-    -> impl IntoResponse { register(s, req, "agent").await }
+async fn register_agent(
+    State(s): State<AppState>, headers: HeaderMap, Json(req): Json<RegisterReq>,
+) -> impl IntoResponse {
+    if !is_authorized(&s, &headers) { return unauthorized_resp(); }
+    register(s, req, "agent").await.into_response()
+}
 
-async fn register_node(State(s): State<AppState>, Json(req): Json<RegisterReq>)
-    -> impl IntoResponse { register(s, req, "node").await }
+async fn register_node(
+    State(s): State<AppState>, headers: HeaderMap, Json(req): Json<RegisterReq>,
+) -> impl IntoResponse {
+    if !is_authorized(&s, &headers) { return unauthorized_resp(); }
+    register(s, req, "node").await.into_response()
+}
 
-async fn register_agent_v2(State(s): State<AppState>, Json(req): Json<RegisterReq>)
-    -> impl IntoResponse { register_v2(s, req, "agent").await }
+async fn register_agent_x509(
+    State(s): State<AppState>, headers: HeaderMap, Json(req): Json<RegisterReq>,
+) -> impl IntoResponse {
+    if !is_authorized(&s, &headers) { return unauthorized_resp(); }
+    register_x509(s, req, "agent").await.into_response()
+}
 
-async fn register_node_v2(State(s): State<AppState>, Json(req): Json<RegisterReq>)
-    -> impl IntoResponse { register_v2(s, req, "node").await }
+async fn register_node_x509(
+    State(s): State<AppState>, headers: HeaderMap, Json(req): Json<RegisterReq>,
+) -> impl IntoResponse {
+    if !is_authorized(&s, &headers) { return unauthorized_resp(); }
+    register_x509(s, req, "node").await.into_response()
+}
 
 /// NPS-RFC-0002 dual-trust register: emits both the v1 Ed25519 signature and
 /// a 2-cert X.509 chain (leaf + self-signed root).
-async fn register_v2(s: AppState, req: RegisterReq, entity_type: &str) -> impl IntoResponse {
+async fn register_x509(s: AppState, req: RegisterReq, entity_type: &str) -> impl IntoResponse {
+    if let Err(e) = validate_register(&req.pub_key, req.nid.as_deref()) {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error_code":"NIP-CA-BAD-REQUEST","message":e}))).into_response();
+    }
     let domain = ca_domain(&s.ca_nid);
     let nid = req.nid.unwrap_or_else(|| ca::generate_nid(&domain, entity_type));
     if s.db.get_active(&nid).unwrap_or(None).is_some() {
@@ -101,6 +157,9 @@ async fn register_v2(s: AppState, req: RegisterReq, entity_type: &str) -> impl I
 }
 
 async fn register(s: AppState, req: RegisterReq, entity_type: &str) -> impl IntoResponse {
+    if let Err(e) = validate_register(&req.pub_key, req.nid.as_deref()) {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error_code":"NIP-CA-BAD-REQUEST","message":e}))).into_response();
+    }
     let domain = ca_domain(&s.ca_nid);
     let nid = req.nid.unwrap_or_else(|| ca::generate_nid(&domain, entity_type));
     if s.db.get_active(&nid).unwrap_or(None).is_some() {
@@ -132,7 +191,10 @@ async fn register(s: AppState, req: RegisterReq, entity_type: &str) -> impl Into
     }))).into_response()
 }
 
-async fn renew(State(s): State<AppState>, Path(nid): Path<String>) -> impl IntoResponse {
+async fn renew(
+    State(s): State<AppState>, headers: HeaderMap, Path(nid): Path<String>,
+) -> impl IntoResponse {
+    if !is_authorized(&s, &headers) { return unauthorized_resp(); }
     let rec = match s.db.get_active(&nid).unwrap_or(None) {
         Some(r) => r,
         None => return (StatusCode::NOT_FOUND, Json(json!({"error_code":"NIP-CA-NID-NOT-FOUND","message":format!("{nid} not found")}))).into_response(),
@@ -161,10 +223,19 @@ async fn renew(State(s): State<AppState>, Path(nid): Path<String>) -> impl IntoR
     Json(json!({"nid": nid, "serial": serial, "issued_at": issued_at, "expires_at": expires_at, "ident_frame": cert})).into_response()
 }
 
-async fn revoke_handler(State(s): State<AppState>, Path(nid): Path<String>,
-    body: Option<Json<RevokeReq>>) -> impl IntoResponse {
+async fn revoke_handler(
+    State(s): State<AppState>, headers: HeaderMap, Path(nid): Path<String>,
+    body: Option<Json<RevokeReq>>,
+) -> impl IntoResponse {
+    if !is_authorized(&s, &headers) { return unauthorized_resp(); }
     let reason = body.and_then(|b| b.reason.clone())
         .unwrap_or_else(|| "cessation_of_operation".to_string());
+    if !VALID_REASONS.contains(&reason.as_str()) {
+        return (StatusCode::BAD_REQUEST, Json(json!({
+            "error_code": "NIP-CA-BAD-REQUEST",
+            "message": format!("Invalid revocation reason '{}'. Allowed: {}", reason, VALID_REASONS.join(", "))
+        }))).into_response();
+    }
     if !s.db.revoke(&nid, &reason).unwrap_or(false) {
         return (StatusCode::NOT_FOUND, Json(json!({"error_code":"NIP-CA-NID-NOT-FOUND","message":format!("{nid} not found")}))).into_response();
     }
@@ -204,11 +275,11 @@ async fn well_known(State(s): State<AppState>) -> Json<Value> {
         "public_key": s.ca.pub_key_str, "algorithms": ["ed25519"],
         "cert_formats": ["v1-proprietary", "v2-x509"],   // NPS-RFC-0002 §4.5
         "endpoints": {
-            "register":    format!("{base}/v1/agents/register"),
-            "register_v2": format!("{base}/v2/agents/register"),   // NPS-RFC-0002
-            "verify":      format!("{base}/v1/agents/{{nid}}/verify"),
-            "ocsp":        format!("{base}/v1/agents/{{nid}}/verify"),
-            "crl":         format!("{base}/v1/crl"),
+            "register":      format!("{base}/v1/agents/register"),
+            "register_x509": format!("{base}/v1/agents/register-x509"),   // NPS-RFC-0002
+            "verify":        format!("{base}/v1/agents/{{nid}}/verify"),
+            "ocsp":          format!("{base}/v1/agents/{{nid}}/verify"),
+            "crl":           format!("{base}/v1/crl"),
         },
         "capabilities": ["agent","node"],
         "max_cert_validity_days": std::cmp::max(s.agent_days, s.node_days),
@@ -228,7 +299,6 @@ fn ca_domain(ca_nid: &str) -> String {
 }
 
 fn iso_to_epoch(s: &str) -> u64 {
-    // Parse "2026-05-17T12:00:00Z" to unix seconds (simple, no external crate)
     let s = s.trim_end_matches('Z');
     let parts: Vec<u64> = s.split(['T','-',':']).filter_map(|p| p.parse().ok()).collect();
     if parts.len() < 6 { return 0; }
@@ -249,17 +319,18 @@ fn days_since_epoch(y: u64, mo: u64, d: u64) -> u64 {
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let ca_nid      = env::var("NIP_CA_NID").expect("NIP_CA_NID is required");
-    let passphrase  = env::var("NIP_CA_PASSPHRASE").expect("NIP_CA_PASSPHRASE is required");
-    let base_url    = env::var("NIP_CA_BASE_URL").expect("NIP_CA_BASE_URL is required");
-    let key_file       = env_str("NIP_CA_KEY_FILE",       "/data/ca.key.enc");
-    let root_cert_file = env_str("NIP_CA_ROOT_CERT_FILE", "/data/ca.root.der");
-    let db_path        = env_str("NIP_CA_DB_PATH",        "/data/ca.db");
-    let display_name = env_str("NIP_CA_DISPLAY_NAME", "NPS CA");
-    let agent_days  = env_i64("NIP_CA_AGENT_VALIDITY_DAYS", 30);
-    let node_days   = env_i64("NIP_CA_NODE_VALIDITY_DAYS",  90);
-    let renewal_days = env_i64("NIP_CA_RENEWAL_WINDOW_DAYS", 7);
-    let port: u16   = env_str("PORT", "17440").parse().unwrap_or(17440);
+    let ca_nid           = env::var("NIP_CA_NID").expect("NIP_CA_NID is required");
+    let passphrase       = env::var("NIP_CA_PASSPHRASE").expect("NIP_CA_PASSPHRASE is required");
+    let base_url         = env::var("NIP_CA_BASE_URL").expect("NIP_CA_BASE_URL is required");
+    let key_file         = env_str("NIP_CA_KEY_FILE",       "/data/ca.key.enc");
+    let root_cert_file   = env_str("NIP_CA_ROOT_CERT_FILE", "/data/ca.root.der");
+    let db_path          = env_str("NIP_CA_DB_PATH",        "/data/ca.db");
+    let display_name     = env_str("NIP_CA_DISPLAY_NAME",   "NPS CA");
+    let agent_days       = env_i64("NIP_CA_AGENT_VALIDITY_DAYS", 30);
+    let node_days        = env_i64("NIP_CA_NODE_VALIDITY_DAYS",  90);
+    let renewal_days     = env_i64("NIP_CA_RENEWAL_WINDOW_DAYS", 7);
+    let operator_api_key = env::var("NIP_CA_OPERATOR_API_KEY").ok().filter(|s| !s.is_empty());
+    let port: u16        = env_str("PORT", "17440").parse().unwrap_or(17440);
 
     let signing_key = if std::path::Path::new(&key_file).exists() {
         ca::load_key(&key_file, &passphrase).expect("failed to load key")
@@ -278,22 +349,26 @@ async fn main() {
         ca: Arc::new(ca::Ca { signing_key, pub_key_str }),
         db: Arc::new(CaDb::open(&db_path).expect("failed to open db")),
         ca_nid, base_url, display_name, agent_days, node_days, renewal_days,
+        operator_api_key,
         ca_root_cert: Arc::new(ca_root_cert),
     };
 
     let app = Router::new()
-        .route("/v1/agents/register",     post(register_agent))
-        .route("/v1/nodes/register",      post(register_node))
-        // NPS-RFC-0002 — v2 dual-trust register (Ed25519 sig + 2-cert X.509 chain).
-        .route("/v2/agents/register",     post(register_agent_v2))
-        .route("/v2/nodes/register",      post(register_node_v2))
-        .route("/v1/agents/:nid/renew",   post(renew))
-        .route("/v1/agents/:nid/revoke",  post(revoke_handler))
-        .route("/v1/agents/:nid/verify",  get(verify_handler))
-        .route("/v1/ca/cert",             get(ca_cert))
-        .route("/v1/crl",                 get(crl))
-        .route("/.well-known/nps-ca",     get(well_known))
-        .route("/health",                 get(health))
+        .route("/v1/agents/register",      post(register_agent))
+        .route("/v1/nodes/register",       post(register_node))
+        // NPS-RFC-0002 — register-x509: Ed25519 sig + 2-cert X.509 chain.
+        .route("/v1/agents/register-x509", post(register_agent_x509))
+        .route("/v1/nodes/register-x509",  post(register_node_x509))
+        .route("/v1/agents/:nid/renew",    post(renew))
+        .route("/v1/nodes/:nid/renew",     post(renew))
+        .route("/v1/agents/:nid/revoke",   post(revoke_handler))
+        .route("/v1/nodes/:nid/revoke",    post(revoke_handler))
+        .route("/v1/agents/:nid/verify",   get(verify_handler))
+        .route("/v1/nodes/:nid/verify",    get(verify_handler))
+        .route("/v1/ca/cert",              get(ca_cert))
+        .route("/v1/crl",                  get(crl))
+        .route("/.well-known/nps-ca",      get(well_known))
+        .route("/health",                  get(health))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

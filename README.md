@@ -30,7 +30,8 @@ as unmaintained reference reads.
 - **PostgreSQL** storage (Docker Compose ships a Postgres 16 sidecar)
 - **OCSP** + **CRL** + **`/.well-known/nps-ca`** discovery
 - **Single Docker image**, non-root, healthcheck baked in
-- **Open API** — REST / JSON, no proprietary auth surface
+- **Operator auth** — optional Bearer token guards all write endpoints
+- **ACME** — optional RFC 8555 + NPS-RFC-0002 `agent-01` challenge (set `NIPCA__ACMEENABLED=true`)
 
 ## Quick Start
 
@@ -71,6 +72,10 @@ are in `appsettings.Docker.json`.
 | `NIPCA__NODECERTVALIDITYDAYS` | no | `90` | Node certificate validity window |
 | `NIPCA__RENEWALWINDOWDAYS` | no | `7` | Days before expiry that renewal opens |
 | `NIPCA__NORMALIZEOCSPRESPONSETIME` | no | `true` | Round OCSP `producedAt` to the second |
+| `NIPCA__OPERATORAPIKEY` | no | — | Bearer token required on all write endpoints; omit to disable auth (dev only) |
+| `NIPCA__ALLOWEDCAPABILITIES` | no | — | Comma-separated capability allowlist; requests with unlisted caps are rejected with 403 |
+| `NIPCA__ACMEENABLED` | no | `false` | Enable ACME RFC 8555 + `agent-01` challenge (NPS-RFC-0002) |
+| `NIPCA__ACMEPATHPREFIX` | no | `/acme` | HTTP route prefix for ACME endpoints |
 
 ### TLS
 
@@ -82,17 +87,22 @@ public HTTPS endpoint.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/v1/agents/register` | Register Agent, issue `IdentFrame` |
+| `POST` | `/v1/agents/register` | Register Agent, issue `IdentFrame` (Ed25519) |
+| `POST` | `/v1/agents/register-x509` | Register Agent, issue dual-trust frame (Ed25519 + X.509 chain, NPS-RFC-0002) |
 | `POST` | `/v1/agents/{nid}/renew` | Renew Agent certificate |
 | `POST` | `/v1/agents/{nid}/revoke` | Revoke Agent certificate |
 | `GET`  | `/v1/agents/{nid}/verify` | Verify / OCSP for an Agent NID |
-| `POST` | `/v1/nodes/register` | Register Node, issue `IdentFrame` |
+| `POST` | `/v1/nodes/register` | Register Node, issue `IdentFrame` (Ed25519) |
+| `POST` | `/v1/nodes/register-x509` | Register Node, issue dual-trust frame (Ed25519 + X.509 chain, NPS-RFC-0002) |
 | `POST` | `/v1/nodes/{nid}/renew` | Renew Node certificate |
 | `POST` | `/v1/nodes/{nid}/revoke` | Revoke Node certificate |
-| `GET`  | `/v1/ca/cert` | CA public key (PEM) |
+| `GET`  | `/v1/nodes/{nid}/verify` | Verify / OCSP for a Node NID |
+| `GET`  | `/v1/ca/cert` | CA public key |
 | `GET`  | `/v1/crl` | Certificate Revocation List |
 | `GET`  | `/.well-known/nps-ca` | CA discovery document |
 | `GET`  | `/health` | Health check (returns 200 when ready) |
+
+Write endpoints (`register`, `register-x509`, `renew`, `revoke`) require `Authorization: Bearer <token>` when `NIPCA__OPERATORAPIKEY` is set.
 
 Field-level shapes are defined in [NPS-3 §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md).
 
@@ -113,7 +123,7 @@ Pre-built images are pushed to GitHub Container Registry on every
 release tag:
 
 ```bash
-docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.4
+docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.5
 ```
 
 Build locally:

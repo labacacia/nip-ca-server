@@ -35,6 +35,9 @@ builder.Services.AddNipCa(opts =>
     if (int.TryParse(caSection["RenewalWindowDays"],     out var renewDays)) opts.RenewalWindowDays     = renewDays;
 
     opts.NormalizeOcspResponseTime = caSection.GetValue("NormalizeOcspResponseTime", true);
+    opts.OperatorApiKey            = caSection["OperatorApiKey"]; // env: NIPCA__OPERATORAPIKEY
+    opts.AcmeEnabled               = caSection.GetValue("AcmeEnabled", false);
+    opts.AcmePathPrefix            = caSection["AcmePathPrefix"] ?? "/acme";
 },
 generateKeyIfMissing: builder.Environment.IsDevelopment());
 
@@ -46,6 +49,7 @@ var app = builder.Build();
 app.UseHttpsRedirection();
 
 // ── Routes ─────────────────────────────────────────────────────────────────
+app.UseNipAcme();
 app.MapNipCa();
 app.MapHealthChecks("/health");
 

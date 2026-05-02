@@ -7,23 +7,29 @@ import { CaDb } from "./db.js";
 import * as ca from "./ca.js";
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const CA_NID        = process.env["NIP_CA_NID"]!;
-const CA_PASSPHRASE = process.env["NIP_CA_PASSPHRASE"]!;
-const CA_BASE_URL   = (process.env["NIP_CA_BASE_URL"] ?? "").replace(/\/$/, "");
-const KEY_FILE      = process.env["NIP_CA_KEY_FILE"]     ?? "/data/ca.key.enc";
+const CA_NID         = process.env["NIP_CA_NID"]!;
+const CA_PASSPHRASE  = process.env["NIP_CA_PASSPHRASE"]!;
+const CA_BASE_URL    = (process.env["NIP_CA_BASE_URL"] ?? "").replace(/\/$/, "");
+const KEY_FILE       = process.env["NIP_CA_KEY_FILE"]      ?? "/data/ca.key.enc";
 const ROOT_CERT_FILE = process.env["NIP_CA_ROOT_CERT_FILE"] ?? "/data/ca.root.der";
-const DB_PATH       = process.env["NIP_CA_DB_PATH"]      ?? "/data/ca.db";
-const DISPLAY_NAME  = process.env["NIP_CA_DISPLAY_NAME"] ?? "NPS CA";
-const AGENT_DAYS    = parseInt(process.env["NIP_CA_AGENT_VALIDITY_DAYS"] ?? "30");
-const NODE_DAYS     = parseInt(process.env["NIP_CA_NODE_VALIDITY_DAYS"]  ?? "90");
-const RENEWAL_DAYS  = parseInt(process.env["NIP_CA_RENEWAL_WINDOW_DAYS"] ?? "7");
-const PORT          = parseInt(process.env["PORT"] ?? "17440");
+const DB_PATH        = process.env["NIP_CA_DB_PATH"]       ?? "/data/ca.db";
+const DISPLAY_NAME   = process.env["NIP_CA_DISPLAY_NAME"]  ?? "NPS CA";
+const AGENT_DAYS     = parseInt(process.env["NIP_CA_AGENT_VALIDITY_DAYS"] ?? "30");
+const NODE_DAYS      = parseInt(process.env["NIP_CA_NODE_VALIDITY_DAYS"]  ?? "90");
+const RENEWAL_DAYS   = parseInt(process.env["NIP_CA_RENEWAL_WINDOW_DAYS"] ?? "7");
+const PORT           = parseInt(process.env["PORT"] ?? "17440");
+const OPERATOR_API_KEY = process.env["NIP_CA_OPERATOR_API_KEY"] ?? "";
 
 for (const k of ["NIP_CA_NID", "NIP_CA_PASSPHRASE", "NIP_CA_BASE_URL"]) {
   if (!process.env[k]) throw new Error(`${k} is required`);
 }
 
 const CA_DOMAIN = CA_NID.split(":").slice(-2)[0] ?? "ca.local";
+
+const VALID_REVOKE_REASONS = new Set([
+  "key_compromise", "ca_compromise", "affiliation_changed",
+  "superseded", "cessation_of_operation",
+]);
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 let caPriv: crypto.KeyObject;
@@ -45,13 +51,44 @@ const db = new CaDb(DB_PATH);
 // ── Server ─────────────────────────────────────────────────────────────────────
 const app = Fastify({ logger: true });
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+function isAuthorized(req: any): boolean {
+  if (!OPERATOR_API_KEY) return true;
+  const auth: string | undefined = req.headers["authorization"];
+  if (!auth || !auth.startsWith("Bearer ")) return false;
+  const provided = auth.slice("Bearer ".length);
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(provided, "utf8"),
+      Buffer.from(OPERATOR_API_KEY, "utf8"),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function unauthorizedReply(reply: any): void {
+  reply.code(401).send({ error_code: "NIP-CA-UNAUTHORIZED",
+    message: "Valid operator Bearer token required." });
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
+function validateRegister(body: any, reply: any): boolean {
+  if (!body.pub_key || !body.pub_key.startsWith("ed25519:") || body.pub_key.length <= 8) {
+    reply.code(400).send({ error_code: "NIP-CA-BAD-REQUEST",
+      message: "pub_key must be 'ed25519:<base64url>'." });
+    return false;
+  }
+  return true;
+}
+
 function register(
   body: { nid?: string; pub_key: string; capabilities?: string[]; scope?: object; metadata?: object },
   entityType: string,
   validityDays: number,
   reply: any,
 ): void {
+  if (!validateRegister(body, reply)) return;
   const nid = body.nid ?? ca.generateNid(CA_DOMAIN, entityType);
   if (db.getActive(nid)) {
     reply.code(409).send({ error_code: "NIP-CA-NID-ALREADY-EXISTS",
@@ -70,22 +107,13 @@ function register(
     expires_at: cert.expires_at, ident_frame: cert });
 }
 
-// ── Routes ─────────────────────────────────────────────────────────────────────
-app.post("/v1/agents/register", async (req, reply) => {
-  register(req.body as any, "agent", AGENT_DAYS, reply);
-});
-
-app.post("/v1/nodes/register", async (req, reply) => {
-  register(req.body as any, "node", NODE_DAYS, reply);
-});
-
-// ── v2 Register (NPS-RFC-0002 X.509 + Ed25519 dual-trust) ───────────────────
-async function registerV2(
+async function registerX509(
   body: { nid?: string; pub_key: string; capabilities?: string[]; scope?: object; metadata?: object },
   entityType: string,
   validityDays: number,
   reply: any,
 ): Promise<void> {
+  if (!validateRegister(body, reply)) return;
   const nid = body.nid ?? ca.generateNid(CA_DOMAIN, entityType);
   if (db.getActive(nid)) {
     reply.code(409).send({ error_code: "NIP-CA-NID-ALREADY-EXISTS",
@@ -104,68 +132,127 @@ async function registerV2(
     expires_at: cert.expires_at, ident_frame: cert });
 }
 
-app.post("/v2/agents/register", async (req, reply) => {
-  await registerV2(req.body as any, "agent", AGENT_DAYS, reply);
+// ── Routes ─────────────────────────────────────────────────────────────────────
+app.post("/v1/agents/register", async (req, reply) => {
+  if (!isAuthorized(req)) return unauthorizedReply(reply);
+  register(req.body as any, "agent", AGENT_DAYS, reply);
 });
 
-app.post("/v2/nodes/register", async (req, reply) => {
-  await registerV2(req.body as any, "node", NODE_DAYS, reply);
+app.post("/v1/nodes/register", async (req, reply) => {
+  if (!isAuthorized(req)) return unauthorizedReply(reply);
+  register(req.body as any, "node", NODE_DAYS, reply);
 });
 
-app.post<{ Params: { "*": string } }>("/v1/agents/*", async (req, reply) => {
-  const parts = (req.params["*"] as string).split("/");
-  const action = parts.pop();
-  const nid = parts.join("/");
-
-  if (action === "renew") {
-    const rec = db.getActive(nid);
-    if (!rec) return reply.code(404).send({ error_code: "NIP-CA-NID-NOT-FOUND", message: `${nid} not found` });
-    const expMs = new Date(rec.expires_at).getTime();
-    const daysLeft = Math.floor((expMs - Date.now()) / 86400_000);
-    if (daysLeft > RENEWAL_DAYS)
-      return reply.code(400).send({ error_code: "NIP-CA-RENEWAL-TOO-EARLY",
-        message: `Renewal window opens in ${daysLeft - RENEWAL_DAYS} days` });
-    const serial = db.nextSerial();
-    const days = rec.entity_type === "agent" ? AGENT_DAYS : NODE_DAYS;
-    const cert = ca.issueCert(caPriv, CA_NID, nid, rec.pub_key,
-      rec.capabilities, rec.scope, days, serial, rec.metadata);
-    db.insert({ nid, entity_type: rec.entity_type, serial, pub_key: rec.pub_key,
-      capabilities: rec.capabilities, scope: rec.scope,
-      issued_by: CA_NID, issued_at: cert.issued_at, expires_at: cert.expires_at,
-      metadata: rec.metadata });
-    return reply.send({ nid, serial, issued_at: cert.issued_at,
-      expires_at: cert.expires_at, ident_frame: cert });
-  }
-
-  if (action === "revoke") {
-    const body = req.body as any;
-    if (!db.revoke(nid, body?.reason ?? "cessation_of_operation"))
-      return reply.code(404).send({ error_code: "NIP-CA-NID-NOT-FOUND",
-        message: `${nid} not found or already revoked` });
-    return reply.send({ nid, revoked_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-      reason: body?.reason ?? "cessation_of_operation" });
-  }
-
-  reply.code(404).send({ message: "Not found" });
+// ── register-x509 (NPS-RFC-0002 X.509 + Ed25519 dual-trust) ──────────────────
+app.post("/v1/agents/register-x509", async (req, reply) => {
+  if (!isAuthorized(req)) return unauthorizedReply(reply);
+  await registerX509(req.body as any, "agent", AGENT_DAYS, reply);
 });
 
-app.get<{ Params: { "*": string } }>("/v1/agents/*", async (req, reply) => {
-  const parts = (req.params["*"] as string).split("/");
-  const action = parts.pop();
-  const nid = parts.join("/");
-
-  if (action === "verify") {
-    const rec = db.getActive(nid);
-    if (!rec) return reply.code(404).send({ error_code: "NIP-CA-NID-NOT-FOUND", message: `${nid} not found` });
-    const valid = new Date(rec.expires_at).getTime() > Date.now();
-    return reply.send({ valid, nid, entity_type: rec.entity_type, pub_key: rec.pub_key,
-      capabilities: rec.capabilities, issued_by: rec.issued_by,
-      issued_at: rec.issued_at, expires_at: rec.expires_at, serial: rec.serial,
-      error_code: valid ? null : "NIP-CERT-EXPIRED" });
-  }
-  reply.code(404).send({ message: "Not found" });
+app.post("/v1/nodes/register-x509", async (req, reply) => {
+  if (!isAuthorized(req)) return unauthorizedReply(reply);
+  await registerX509(req.body as any, "node", NODE_DAYS, reply);
 });
 
+// ── Agent lifecycle ───────────────────────────────────────────────────────────
+app.post<{ Params: { nid: string } }>("/v1/agents/:nid/renew", async (req, reply) => {
+  if (!isAuthorized(req)) return unauthorizedReply(reply);
+  const nid = req.params.nid;
+  const rec = db.getActive(nid);
+  if (!rec) return reply.code(404).send({ error_code: "NIP-CA-NID-NOT-FOUND", message: `${nid} not found` });
+  const expMs = new Date(rec.expires_at).getTime();
+  const daysLeft = Math.floor((expMs - Date.now()) / 86400_000);
+  if (daysLeft > RENEWAL_DAYS)
+    return reply.code(400).send({ error_code: "NIP-CA-RENEWAL-TOO-EARLY",
+      message: `Renewal window opens in ${daysLeft - RENEWAL_DAYS} days` });
+  const serial = db.nextSerial();
+  const days = rec.entity_type === "agent" ? AGENT_DAYS : NODE_DAYS;
+  const cert = ca.issueCert(caPriv, CA_NID, nid, rec.pub_key,
+    rec.capabilities, rec.scope, days, serial, rec.metadata);
+  db.insert({ nid, entity_type: rec.entity_type, serial, pub_key: rec.pub_key,
+    capabilities: rec.capabilities, scope: rec.scope,
+    issued_by: CA_NID, issued_at: cert.issued_at, expires_at: cert.expires_at,
+    metadata: rec.metadata });
+  return reply.send({ nid, serial, issued_at: cert.issued_at,
+    expires_at: cert.expires_at, ident_frame: cert });
+});
+
+app.post<{ Params: { nid: string } }>("/v1/agents/:nid/revoke", async (req, reply) => {
+  if (!isAuthorized(req)) return unauthorizedReply(reply);
+  const nid = req.params.nid;
+  const body = req.body as any;
+  const reason = body?.reason ?? "cessation_of_operation";
+  if (!VALID_REVOKE_REASONS.has(reason))
+    return reply.code(400).send({ error_code: "NIP-CA-BAD-REQUEST",
+      message: `Invalid revocation reason. Allowed: ${[...VALID_REVOKE_REASONS].join(", ")}` });
+  if (!db.revoke(nid, reason))
+    return reply.code(404).send({ error_code: "NIP-CA-NID-NOT-FOUND",
+      message: `${nid} not found or already revoked` });
+  return reply.send({ nid, revoked_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    reason });
+});
+
+app.get<{ Params: { nid: string } }>("/v1/agents/:nid/verify", async (req, reply) => {
+  const nid = req.params.nid;
+  const rec = db.getActive(nid);
+  if (!rec) return reply.code(404).send({ error_code: "NIP-CA-NID-NOT-FOUND", message: `${nid} not found` });
+  const valid = new Date(rec.expires_at).getTime() > Date.now();
+  return reply.send({ valid, nid, entity_type: rec.entity_type, pub_key: rec.pub_key,
+    capabilities: rec.capabilities, issued_by: rec.issued_by,
+    issued_at: rec.issued_at, expires_at: rec.expires_at, serial: rec.serial,
+    error_code: valid ? null : "NIP-CERT-EXPIRED" });
+});
+
+// ── Node lifecycle ────────────────────────────────────────────────────────────
+app.post<{ Params: { nid: string } }>("/v1/nodes/:nid/renew", async (req, reply) => {
+  if (!isAuthorized(req)) return unauthorizedReply(reply);
+  const nid = req.params.nid;
+  const rec = db.getActive(nid);
+  if (!rec) return reply.code(404).send({ error_code: "NIP-CA-NID-NOT-FOUND", message: `${nid} not found` });
+  const expMs = new Date(rec.expires_at).getTime();
+  const daysLeft = Math.floor((expMs - Date.now()) / 86400_000);
+  if (daysLeft > RENEWAL_DAYS)
+    return reply.code(400).send({ error_code: "NIP-CA-RENEWAL-TOO-EARLY",
+      message: `Renewal window opens in ${daysLeft - RENEWAL_DAYS} days` });
+  const serial = db.nextSerial();
+  const days = rec.entity_type === "agent" ? AGENT_DAYS : NODE_DAYS;
+  const cert = ca.issueCert(caPriv, CA_NID, nid, rec.pub_key,
+    rec.capabilities, rec.scope, days, serial, rec.metadata);
+  db.insert({ nid, entity_type: rec.entity_type, serial, pub_key: rec.pub_key,
+    capabilities: rec.capabilities, scope: rec.scope,
+    issued_by: CA_NID, issued_at: cert.issued_at, expires_at: cert.expires_at,
+    metadata: rec.metadata });
+  return reply.send({ nid, serial, issued_at: cert.issued_at,
+    expires_at: cert.expires_at, ident_frame: cert });
+});
+
+app.post<{ Params: { nid: string } }>("/v1/nodes/:nid/revoke", async (req, reply) => {
+  if (!isAuthorized(req)) return unauthorizedReply(reply);
+  const nid = req.params.nid;
+  const body = req.body as any;
+  const reason = body?.reason ?? "cessation_of_operation";
+  if (!VALID_REVOKE_REASONS.has(reason))
+    return reply.code(400).send({ error_code: "NIP-CA-BAD-REQUEST",
+      message: `Invalid revocation reason. Allowed: ${[...VALID_REVOKE_REASONS].join(", ")}` });
+  if (!db.revoke(nid, reason))
+    return reply.code(404).send({ error_code: "NIP-CA-NID-NOT-FOUND",
+      message: `${nid} not found or already revoked` });
+  return reply.send({ nid, revoked_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    reason });
+});
+
+app.get<{ Params: { nid: string } }>("/v1/nodes/:nid/verify", async (req, reply) => {
+  const nid = req.params.nid;
+  const rec = db.getActive(nid);
+  if (!rec) return reply.code(404).send({ error_code: "NIP-CA-NID-NOT-FOUND", message: `${nid} not found` });
+  const valid = new Date(rec.expires_at).getTime() > Date.now();
+  return reply.send({ valid, nid, entity_type: rec.entity_type, pub_key: rec.pub_key,
+    capabilities: rec.capabilities, issued_by: rec.issued_by,
+    issued_at: rec.issued_at, expires_at: rec.expires_at, serial: rec.serial,
+    error_code: valid ? null : "NIP-CERT-EXPIRED" });
+});
+
+// ── CA info ───────────────────────────────────────────────────────────────────
 app.get("/v1/ca/cert", async (_req, reply) =>
   reply.send({ nid: CA_NID, display_name: DISPLAY_NAME, pub_key: caPubStr, algorithm: "ed25519" }));
 
@@ -178,11 +265,11 @@ app.get("/.well-known/nps-ca", async (_req, reply) =>
     algorithms: ["ed25519"],
     cert_formats: ["v1-proprietary", "v2-x509"],   // NPS-RFC-0002 §4.5
     endpoints: {
-      register:    `${CA_BASE_URL}/v1/agents/register`,
-      register_v2: `${CA_BASE_URL}/v2/agents/register`,   // NPS-RFC-0002
-      verify:      `${CA_BASE_URL}/v1/agents/{nid}/verify`,
-      ocsp:        `${CA_BASE_URL}/v1/agents/{nid}/verify`,
-      crl:         `${CA_BASE_URL}/v1/crl`,
+      register:      `${CA_BASE_URL}/v1/agents/register`,
+      register_x509: `${CA_BASE_URL}/v1/agents/register-x509`,   // NPS-RFC-0002
+      verify:        `${CA_BASE_URL}/v1/agents/{nid}/verify`,
+      ocsp:          `${CA_BASE_URL}/v1/agents/{nid}/verify`,
+      crl:           `${CA_BASE_URL}/v1/crl`,
     },
     capabilities: ["agent", "node"],
     max_cert_validity_days: Math.max(AGENT_DAYS, NODE_DAYS),

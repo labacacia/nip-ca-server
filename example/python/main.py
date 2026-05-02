@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import os
+import re
+import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Path
+from fastapi import Depends, FastAPI, Header, HTTPException, Path
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -16,18 +18,25 @@ from db import CaDb
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-CA_NID        = os.environ["NIP_CA_NID"]
-CA_PASSPHRASE = os.environ["NIP_CA_PASSPHRASE"]
-CA_BASE_URL   = os.environ["NIP_CA_BASE_URL"].rstrip("/")
-KEY_FILE      = os.environ.get("NIP_CA_KEY_FILE", "/data/ca.key.enc")
-DB_PATH       = os.environ.get("NIP_CA_DB_PATH",  "/data/ca.db")
-DISPLAY_NAME  = os.environ.get("NIP_CA_DISPLAY_NAME", "NPS CA")
-AGENT_DAYS    = int(os.environ.get("NIP_CA_AGENT_VALIDITY_DAYS", "30"))
-NODE_DAYS     = int(os.environ.get("NIP_CA_NODE_VALIDITY_DAYS",  "90"))
-RENEWAL_DAYS  = int(os.environ.get("NIP_CA_RENEWAL_WINDOW_DAYS", "7"))
-ROOT_CERT_FILE = os.environ.get("NIP_CA_ROOT_CERT_FILE", "/data/ca.root.der")
+CA_NID           = os.environ["NIP_CA_NID"]
+CA_PASSPHRASE    = os.environ["NIP_CA_PASSPHRASE"]
+CA_BASE_URL      = os.environ["NIP_CA_BASE_URL"].rstrip("/")
+KEY_FILE         = os.environ.get("NIP_CA_KEY_FILE",       "/data/ca.key.enc")
+DB_PATH          = os.environ.get("NIP_CA_DB_PATH",        "/data/ca.db")
+DISPLAY_NAME     = os.environ.get("NIP_CA_DISPLAY_NAME",   "NPS CA")
+AGENT_DAYS       = int(os.environ.get("NIP_CA_AGENT_VALIDITY_DAYS", "30"))
+NODE_DAYS        = int(os.environ.get("NIP_CA_NODE_VALIDITY_DAYS",  "90"))
+RENEWAL_DAYS     = int(os.environ.get("NIP_CA_RENEWAL_WINDOW_DAYS", "7"))
+ROOT_CERT_FILE   = os.environ.get("NIP_CA_ROOT_CERT_FILE", "/data/ca.root.der")
+OPERATOR_API_KEY = os.environ.get("NIP_CA_OPERATOR_API_KEY")
 
 _ca_nid_domain = CA_NID.split(":")[-2] if CA_NID.count(":") >= 4 else "ca.local"
+
+_VALID_REVOKE_REASONS = frozenset([
+    "key_compromise", "ca_compromise", "affiliation_changed",
+    "superseded", "cessation_of_operation",
+])
+_IDENTIFIER_RE = re.compile(r'^[a-zA-Z0-9._:@/\-]{1,256}$')
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +61,20 @@ def startup() -> None:
     ca_root_cert = ca_module.load_or_create_root_cert(ca_priv, CA_NID, ROOT_CERT_FILE)
 
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+def _require_operator_auth(authorization: str | None = Header(default=None)) -> None:
+    if not OPERATOR_API_KEY:
+        return
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, {"error_code": "NIP-CA-UNAUTHORIZED",
+                                   "message": "Valid operator Bearer token required."})
+    provided = authorization[len("Bearer "):]
+    if not secrets.compare_digest(provided.encode(), OPERATOR_API_KEY.encode()):
+        raise HTTPException(401, {"error_code": "NIP-CA-UNAUTHORIZED",
+                                   "message": "Valid operator Bearer token required."})
+
+
 # ── Request / Response models ─────────────────────────────────────────────────
 
 class RegisterRequest(BaseModel):
@@ -60,7 +83,7 @@ class RegisterRequest(BaseModel):
     capabilities: list[str] = []
     scope: dict = Field(default_factory=dict)
     metadata: dict | None = None
-    # NPS-RFC-0003 — optional, only honoured by v2 register paths.
+    # NPS-RFC-0003 — optional, only honoured by register-x509 paths.
     assurance_level: str | None = None
 
 
@@ -68,17 +91,19 @@ class RevokeRequest(BaseModel):
     reason: str = "cessation_of_operation"
 
 
-class CertResponse(BaseModel):
-    nid: str
-    serial: str
-    issued_at: str
-    expires_at: str
-    ident_frame: dict
-
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _validate_register(req: RegisterRequest) -> None:
+    if not req.pub_key or not req.pub_key.startswith("ed25519:") or len(req.pub_key) <= 8:
+        raise HTTPException(400, {"error_code": "NIP-CA-BAD-REQUEST",
+                                   "message": "pub_key must be 'ed25519:<base64url>'."})
+    if req.nid and not _IDENTIFIER_RE.match(req.nid):
+        raise HTTPException(400, {"error_code": "NIP-CA-BAD-REQUEST",
+                                   "message": "nid contains invalid characters."})
+
+
 def _register(req: RegisterRequest, entity_type: str, validity_days: int) -> JSONResponse:
+    _validate_register(req)
     nid = req.nid or ca_module.generate_nid(_ca_nid_domain, entity_type)
     if db.get_active(nid):
         raise HTTPException(409, {"error_code": "NIP-CA-NID-ALREADY-EXISTS",
@@ -98,21 +123,8 @@ def _register(req: RegisterRequest, entity_type: str, validity_days: int) -> JSO
                           "ident_frame": cert}, status_code=201)
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
-
-@app.post("/v1/agents/register", status_code=201)
-def register_agent(req: RegisterRequest) -> JSONResponse:
-    return _register(req, "agent", AGENT_DAYS)
-
-
-@app.post("/v1/nodes/register", status_code=201)
-def register_node(req: RegisterRequest) -> JSONResponse:
-    return _register(req, "node", NODE_DAYS)
-
-
-# ── v2 Register (NPS-RFC-0002 X.509 + Ed25519 dual-trust) ────────────────────
-
-def _register_v2(req: RegisterRequest, entity_type: str, validity_days: int) -> JSONResponse:
+def _register_x509(req: RegisterRequest, entity_type: str, validity_days: int) -> JSONResponse:
+    _validate_register(req)
     nid = req.nid or ca_module.generate_nid(_ca_nid_domain, entity_type)
     if db.get_active(nid):
         raise HTTPException(409, {"error_code": "NIP-CA-NID-ALREADY-EXISTS",
@@ -132,18 +144,7 @@ def _register_v2(req: RegisterRequest, entity_type: str, validity_days: int) -> 
                           "ident_frame": cert}, status_code=201)
 
 
-@app.post("/v2/agents/register", status_code=201)
-def register_agent_v2(req: RegisterRequest) -> JSONResponse:
-    return _register_v2(req, "agent", AGENT_DAYS)
-
-
-@app.post("/v2/nodes/register", status_code=201)
-def register_node_v2(req: RegisterRequest) -> JSONResponse:
-    return _register_v2(req, "node", NODE_DAYS)
-
-
-@app.post("/v1/agents/{nid:path}/renew")
-def renew_agent(nid: str = Path(...)) -> JSONResponse:
+def _renew(nid: str) -> JSONResponse:
     rec = db.get_active(nid)
     if not rec:
         raise HTTPException(404, {"error_code": "NIP-CA-NID-NOT-FOUND",
@@ -170,27 +171,27 @@ def renew_agent(nid: str = Path(...)) -> JSONResponse:
                           "ident_frame": cert})
 
 
-@app.post("/v1/agents/{nid:path}/revoke")
-def revoke_agent(req: RevokeRequest, nid: str = Path(...)) -> JSONResponse:
+def _revoke(nid: str, req: RevokeRequest) -> JSONResponse:
+    if req.reason not in _VALID_REVOKE_REASONS:
+        raise HTTPException(400, {"error_code": "NIP-CA-BAD-REQUEST",
+                                   "message": f"Invalid revocation reason. Allowed: {', '.join(sorted(_VALID_REVOKE_REASONS))}"})
     if not db.revoke(nid, req.reason):
         raise HTTPException(404, {"error_code": "NIP-CA-NID-NOT-FOUND",
                                    "message": f"{nid} not found or already revoked"})
-    return JSONResponse({"nid": nid, "revoked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    return JSONResponse({"nid": nid,
+                          "revoked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                           "reason": req.reason})
 
 
-@app.get("/v1/agents/{nid:path}/verify")
-def verify_agent(nid: str = Path(...)) -> JSONResponse:
+def _verify(nid: str) -> JSONResponse:
     rec = db.get_active(nid)
     if not rec:
-        # Check if exists but revoked
-        conn_check = db.get_active.__doc__  # just trigger lookup
         raise HTTPException(404, {"error_code": "NIP-CA-NID-NOT-FOUND",
                                    "message": f"{nid} not found"})
     now = datetime.now(timezone.utc)
     expires = datetime.fromisoformat(rec.expires_at.replace("Z", "+00:00"))
     valid = expires > now
-    return JSONResponse({
+    resp: dict = {
         "valid": valid,
         "nid": nid,
         "entity_type": rec.entity_type,
@@ -200,9 +201,74 @@ def verify_agent(nid: str = Path(...)) -> JSONResponse:
         "issued_at": rec.issued_at,
         "expires_at": rec.expires_at,
         "serial": rec.serial,
-        "error_code": "NIP-CERT-EXPIRED" if not valid else None,
-    })
+    }
+    if not valid:
+        resp["error_code"] = "NIP-CERT-EXPIRED"
+    return JSONResponse(resp)
 
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+_auth = [Depends(_require_operator_auth)]
+
+
+@app.post("/v1/agents/register", status_code=201, dependencies=_auth)
+def register_agent(req: RegisterRequest) -> JSONResponse:
+    return _register(req, "agent", AGENT_DAYS)
+
+
+@app.post("/v1/nodes/register", status_code=201, dependencies=_auth)
+def register_node(req: RegisterRequest) -> JSONResponse:
+    return _register(req, "node", NODE_DAYS)
+
+
+# ── register-x509 (NPS-RFC-0002 X.509 + Ed25519 dual-trust) ──────────────────
+
+@app.post("/v1/agents/register-x509", status_code=201, dependencies=_auth)
+def register_agent_x509(req: RegisterRequest) -> JSONResponse:
+    return _register_x509(req, "agent", AGENT_DAYS)
+
+
+@app.post("/v1/nodes/register-x509", status_code=201, dependencies=_auth)
+def register_node_x509(req: RegisterRequest) -> JSONResponse:
+    return _register_x509(req, "node", NODE_DAYS)
+
+
+# ── Agent lifecycle ───────────────────────────────────────────────────────────
+
+@app.post("/v1/agents/{nid:path}/renew", dependencies=_auth)
+def renew_agent(nid: str = Path(...)) -> JSONResponse:
+    return _renew(nid)
+
+
+@app.post("/v1/agents/{nid:path}/revoke", dependencies=_auth)
+def revoke_agent(req: RevokeRequest, nid: str = Path(...)) -> JSONResponse:
+    return _revoke(nid, req)
+
+
+@app.get("/v1/agents/{nid:path}/verify")
+def verify_agent(nid: str = Path(...)) -> JSONResponse:
+    return _verify(nid)
+
+
+# ── Node lifecycle ────────────────────────────────────────────────────────────
+
+@app.post("/v1/nodes/{nid:path}/renew", dependencies=_auth)
+def renew_node(nid: str = Path(...)) -> JSONResponse:
+    return _renew(nid)
+
+
+@app.post("/v1/nodes/{nid:path}/revoke", dependencies=_auth)
+def revoke_node(req: RevokeRequest, nid: str = Path(...)) -> JSONResponse:
+    return _revoke(nid, req)
+
+
+@app.get("/v1/nodes/{nid:path}/verify")
+def verify_node(nid: str = Path(...)) -> JSONResponse:
+    return _verify(nid)
+
+
+# ── CA info ───────────────────────────────────────────────────────────────────
 
 @app.get("/v1/ca/cert")
 def ca_cert() -> JSONResponse:
@@ -229,11 +295,11 @@ def well_known() -> JSONResponse:
         "algorithms": ["ed25519"],
         "cert_formats": ["v1-proprietary", "v2-x509"],   # NPS-RFC-0002 §4.5
         "endpoints": {
-            "register":     f"{CA_BASE_URL}/v1/agents/register",
-            "register_v2":  f"{CA_BASE_URL}/v2/agents/register",   # NPS-RFC-0002
-            "verify":       f"{CA_BASE_URL}/v1/agents/{{nid}}/verify",
-            "ocsp":         f"{CA_BASE_URL}/v1/agents/{{nid}}/verify",
-            "crl":          f"{CA_BASE_URL}/v1/crl",
+            "register":      f"{CA_BASE_URL}/v1/agents/register",
+            "register_x509": f"{CA_BASE_URL}/v1/agents/register-x509",   # NPS-RFC-0002
+            "verify":        f"{CA_BASE_URL}/v1/agents/{{nid}}/verify",
+            "ocsp":          f"{CA_BASE_URL}/v1/agents/{{nid}}/verify",
+            "crl":           f"{CA_BASE_URL}/v1/crl",
         },
         "capabilities": ["agent", "node"],
         "max_cert_validity_days": max(AGENT_DAYS, NODE_DAYS),

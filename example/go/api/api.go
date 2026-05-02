@@ -6,8 +6,10 @@ package api
 import (
 	"crypto/ed25519"
 	cryptox509 "crypto/x509"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,45 +20,59 @@ import (
 
 // State holds shared application state.
 type State struct {
-	SK          ed25519.PrivateKey
-	PubKeyStr   string
-	DB          *db.CaDb
-	CaNID       string
-	BaseURL     string
-	DisplayName string
-	AgentDays   int
-	NodeDays    int
-	RenewalDays int
+	SK             ed25519.PrivateKey
+	PubKeyStr      string
+	DB             *db.CaDb
+	CaNID          string
+	BaseURL        string
+	DisplayName    string
+	AgentDays      int
+	NodeDays       int
+	RenewalDays    int
+	OperatorApiKey string
 	// NPS-RFC-0002 — self-signed X.509 root cert (loaded/created at startup).
-	CaRootCert  *cryptox509.Certificate
+	CaRootCert *cryptox509.Certificate
 }
+
+var (
+	identifierRe = regexp.MustCompile(`^[a-zA-Z0-9._:@/\-]{1,256}$`)
+	validReasons = map[string]bool{
+		"key_compromise": true, "ca_compromise": true,
+		"affiliation_changed": true, "superseded": true,
+		"cessation_of_operation": true,
+	}
+)
 
 // Router builds and returns the HTTP mux.
 func Router(s *State) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/agents/register", s.registerAgent)
-	mux.HandleFunc("POST /v1/nodes/register", s.registerNode)
-	// NPS-RFC-0002 — v2 dual-trust register (Ed25519 sig + 2-cert X.509 chain).
-	mux.HandleFunc("POST /v2/agents/register", s.registerAgentV2)
-	mux.HandleFunc("POST /v2/nodes/register", s.registerNodeV2)
-	mux.HandleFunc("POST /v1/agents/{nid}/renew", s.renew)
-	mux.HandleFunc("POST /v1/agents/{nid}/revoke", s.revoke)
-	mux.HandleFunc("GET /v1/agents/{nid}/verify", s.verify)
-	mux.HandleFunc("GET /v1/ca/cert", s.caCert)
-	mux.HandleFunc("GET /v1/crl", s.crl)
-	mux.HandleFunc("GET /.well-known/nps-ca", s.wellKnown)
-	mux.HandleFunc("GET /health", health)
+	mux.HandleFunc("POST /v1/agents/register",      s.registerAgent)
+	mux.HandleFunc("POST /v1/nodes/register",       s.registerNode)
+	// NPS-RFC-0002 — register-x509: Ed25519 sig + 2-cert X.509 chain.
+	mux.HandleFunc("POST /v1/agents/register-x509", s.registerAgentX509)
+	mux.HandleFunc("POST /v1/nodes/register-x509",  s.registerNodeX509)
+	mux.HandleFunc("POST /v1/agents/{nid}/renew",   s.renew)
+	mux.HandleFunc("POST /v1/nodes/{nid}/renew",    s.renew)
+	mux.HandleFunc("POST /v1/agents/{nid}/revoke",  s.revoke)
+	mux.HandleFunc("POST /v1/nodes/{nid}/revoke",   s.revoke)
+	mux.HandleFunc("GET /v1/agents/{nid}/verify",   s.verify)
+	mux.HandleFunc("GET /v1/nodes/{nid}/verify",    s.verify)
+	mux.HandleFunc("GET /v1/ca/cert",               s.caCert)
+	mux.HandleFunc("GET /v1/crl",                   s.crl)
+	mux.HandleFunc("GET /.well-known/nps-ca",       s.wellKnown)
+	mux.HandleFunc("GET /health",                   health)
 	return mux
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 type registerReq struct {
-	NID          *string        `json:"nid"`
-	PubKey       string         `json:"pub_key"`
-	Capabilities []string       `json:"capabilities"`
-	Scope        map[string]any `json:"scope"`
-	Metadata     map[string]any `json:"metadata"`
+	NID            *string        `json:"nid"`
+	PubKey         string         `json:"pub_key"`
+	Capabilities   []string       `json:"capabilities"`
+	Scope          map[string]any `json:"scope"`
+	Metadata       map[string]any `json:"metadata"`
+	AssuranceLevel *string        `json:"assurance_level"`
 }
 
 type revokeReq struct {
@@ -64,27 +80,35 @@ type revokeReq struct {
 }
 
 func (s *State) registerAgent(w http.ResponseWriter, r *http.Request) {
+	if !s.isAuthorized(r) { unauthorized(w); return }
 	s.register(w, r, "agent")
 }
 
 func (s *State) registerNode(w http.ResponseWriter, r *http.Request) {
+	if !s.isAuthorized(r) { unauthorized(w); return }
 	s.register(w, r, "node")
 }
 
-func (s *State) registerAgentV2(w http.ResponseWriter, r *http.Request) {
-	s.registerV2(w, r, "agent")
+func (s *State) registerAgentX509(w http.ResponseWriter, r *http.Request) {
+	if !s.isAuthorized(r) { unauthorized(w); return }
+	s.registerX509(w, r, "agent")
 }
 
-func (s *State) registerNodeV2(w http.ResponseWriter, r *http.Request) {
-	s.registerV2(w, r, "node")
+func (s *State) registerNodeX509(w http.ResponseWriter, r *http.Request) {
+	if !s.isAuthorized(r) { unauthorized(w); return }
+	s.registerX509(w, r, "node")
 }
 
-// registerV2 is the NPS-RFC-0002 dual-trust path: emits both the v1 Ed25519
+// registerX509 is the NPS-RFC-0002 dual-trust path: emits both the v1 Ed25519
 // signature and a 2-cert X.509 chain (leaf + self-signed root).
-func (s *State) registerV2(w http.ResponseWriter, r *http.Request, entityType string) {
+func (s *State) registerX509(w http.ResponseWriter, r *http.Request, entityType string) {
 	var req registerReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "NIP-CA-BAD-REQUEST", "invalid JSON body")
+		return
+	}
+	if errMsg := validateRegister(&req); errMsg != "" {
+		jsonErr(w, http.StatusBadRequest, "NIP-CA-BAD-REQUEST", errMsg)
 		return
 	}
 	if s.CaRootCert == nil {
@@ -144,6 +168,10 @@ func (s *State) register(w http.ResponseWriter, r *http.Request, entityType stri
 		jsonErr(w, http.StatusBadRequest, "NIP-CA-BAD-REQUEST", "invalid JSON body")
 		return
 	}
+	if errMsg := validateRegister(&req); errMsg != "" {
+		jsonErr(w, http.StatusBadRequest, "NIP-CA-BAD-REQUEST", errMsg)
+		return
+	}
 
 	domain := caDomain(s.CaNID)
 	nid := ""
@@ -195,6 +223,7 @@ func (s *State) register(w http.ResponseWriter, r *http.Request, entityType stri
 }
 
 func (s *State) renew(w http.ResponseWriter, r *http.Request) {
+	if !s.isAuthorized(r) { unauthorized(w); return }
 	nid := r.PathValue("nid")
 	rec, err := s.DB.GetActive(nid)
 	if err != nil {
@@ -247,12 +276,19 @@ func (s *State) renew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *State) revoke(w http.ResponseWriter, r *http.Request) {
+	if !s.isAuthorized(r) { unauthorized(w); return }
 	nid := r.PathValue("nid")
 
 	reason := "cessation_of_operation"
 	var req revokeReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.Reason != nil {
 		reason = *req.Reason
+	}
+
+	if !validReasons[reason] {
+		jsonErr(w, http.StatusBadRequest, "NIP-CA-BAD-REQUEST",
+			"Invalid revocation reason '"+reason+"'. Allowed: key_compromise, ca_compromise, affiliation_changed, superseded, cessation_of_operation")
+		return
 	}
 
 	ok, err := s.DB.Revoke(nid, reason)
@@ -318,11 +354,11 @@ func (s *State) wellKnown(w http.ResponseWriter, _ *http.Request) {
 		"public_key":   s.PubKeyStr, "algorithms": []string{"ed25519"},
 		"cert_formats": []string{"v1-proprietary", "v2-x509"},   // NPS-RFC-0002 §4.5
 		"endpoints": map[string]any{
-			"register":    base + "/v1/agents/register",
-			"register_v2": base + "/v2/agents/register",            // NPS-RFC-0002
-			"verify":      base + "/v1/agents/{nid}/verify",
-			"ocsp":        base + "/v1/agents/{nid}/verify",
-			"crl":         base + "/v1/crl",
+			"register":      base + "/v1/agents/register",
+			"register_x509": base + "/v1/agents/register-x509",   // NPS-RFC-0002
+			"verify":        base + "/v1/agents/{nid}/verify",
+			"ocsp":          base + "/v1/agents/{nid}/verify",
+			"crl":           base + "/v1/crl",
 		},
 		"capabilities":           []string{"agent", "node"},
 		"max_cert_validity_days": max(s.AgentDays, s.NodeDays),
@@ -334,6 +370,32 @@ func health(w http.ResponseWriter, _ *http.Request) {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+func (s *State) isAuthorized(r *http.Request) bool {
+	if s.OperatorApiKey == "" {
+		return true
+	}
+	h := r.Header.Get("Authorization")
+	if !strings.HasPrefix(h, "Bearer ") {
+		return false
+	}
+	provided := strings.TrimSpace(h[len("Bearer "):])
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(s.OperatorApiKey)) == 1
+}
+
+func validateRegister(req *registerReq) string {
+	if req.PubKey == "" || !strings.HasPrefix(req.PubKey, "ed25519:") || len(req.PubKey) <= 8 {
+		return "pub_key must be 'ed25519:<base64url>'."
+	}
+	if req.NID != nil && !identifierRe.MatchString(*req.NID) {
+		return "nid contains invalid characters."
+	}
+	return ""
+}
+
+func unauthorized(w http.ResponseWriter) {
+	jsonErr(w, http.StatusUnauthorized, "NIP-CA-UNAUTHORIZED", "Valid operator Bearer token required.")
+}
 
 func jsonResp(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")

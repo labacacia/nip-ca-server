@@ -12,3 +12,4 @@ nip:
     agent-validity-days: ${NIP_CA_AGENT_VALIDITY_DAYS:30}
     node-validity-days:  ${NIP_CA_NODE_VALIDITY_DAYS:90}
     renewal-window-days: ${NIP_CA_RENEWAL_WINDOW_DAYS:7}
+    operator-api-key:    ${NIP_CA_OPERATOR_API_KEY:}
