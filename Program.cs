@@ -35,11 +35,11 @@ builder.Services.AddNipCa(opts =>
     if (int.TryParse(caSection["RenewalWindowDays"],     out var renewDays)) opts.RenewalWindowDays     = renewDays;
 
     opts.NormalizeOcspResponseTime = caSection.GetValue("NormalizeOcspResponseTime", true);
-    opts.OperatorApiKey            = caSection["OperatorApiKey"]; // env: NIPCA__OPERATORAPIKEY
-    opts.AcmeEnabled               = caSection.GetValue("AcmeEnabled", false);
-    opts.AcmePathPrefix            = caSection["AcmePathPrefix"] ?? "/acme";
 },
-generateKeyIfMissing: builder.Environment.IsDevelopment());
+// Always generate the key on first run — the key is AES-256-GCM encrypted with the
+// operator-supplied passphrase, so auto-generation is safe in any environment.
+// Previously this was gated on IsDevelopment(), which caused crash-loops in Docker.
+generateKeyIfMissing: true);
 
 builder.Services.AddHealthChecks();
 
@@ -49,7 +49,6 @@ var app = builder.Build();
 app.UseHttpsRedirection();
 
 // ── Routes ─────────────────────────────────────────────────────────────────
-app.UseNipAcme();
 app.MapNipCa();
 app.MapHealthChecks("/health");
 
