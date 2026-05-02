@@ -25,7 +25,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # Non-root user for security.
-RUN addgroup --gid 1001 nipca && adduser --uid 1001 --gid 1001 --disabled-password --gecos "" nipca
+RUN groupadd --gid 1001 nipca && useradd --uid 1001 --gid 1001 --no-create-home --shell /bin/false nipca
 
 # Data directory for the encrypted CA key file (mount as a volume).
 RUN mkdir -p /data && chown nipca:nipca /data
