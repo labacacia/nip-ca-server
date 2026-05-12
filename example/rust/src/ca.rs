@@ -179,9 +179,9 @@ use rcgen::{
 use std::path::PathBuf;
 
 // Provisional OIDs — replace once IANA PEN is granted (RFC-0002 §10 OQ-2).
-const OID_EKU_AGENT:        &[u64] = &[1, 3, 6, 1, 4, 1, 99999, 1, 1];
-const OID_EKU_NODE:         &[u64] = &[1, 3, 6, 1, 4, 1, 99999, 1, 2];
-const OID_NID_ASSURANCE:    &[u64] = &[1, 3, 6, 1, 4, 1, 99999, 2, 1];
+const OID_EKU_AGENT:        &[u64] = &[1, 3, 6, 1, 4, 1, 65715, 1, 1];
+const OID_EKU_NODE:         &[u64] = &[1, 3, 6, 1, 4, 1, 65715, 1, 2];
+const OID_NID_ASSURANCE:    &[u64] = &[1, 3, 6, 1, 4, 1, 65715, 2, 1];
 const OID_EXT_KEY_USAGE:    &[u64] = &[2, 5, 29, 37];
 
 fn dalek_to_rcgen_keypair(sk: &SigningKey) -> Result<KeyPair> {

@@ -161,9 +161,9 @@ export function generateNid(domain: string, entityType: string): string {
 // ── NPS-RFC-0002 X.509 issuance ──────────────────────────────────────────────
 
 // Provisional OIDs — replace once IANA PEN is granted (RFC-0002 §10 OQ-2).
-const OID_EKU_AGENT         = "1.3.6.1.4.1.99999.1.1";
-const OID_EKU_NODE          = "1.3.6.1.4.1.99999.1.2";
-const OID_NID_ASSURANCE_LVL = "1.3.6.1.4.1.99999.2.1";
+const OID_EKU_AGENT         = "1.3.6.1.4.1.65715.1.1";
+const OID_EKU_NODE          = "1.3.6.1.4.1.65715.1.2";
+const OID_NID_ASSURANCE_LVL = "1.3.6.1.4.1.65715.2.1";
 
 // PKCS8 / SPKI prefixes for Ed25519 are fixed per RFC 8410. Combined with raw
 // 32-byte key bytes they produce a structurally complete DER blob that Web

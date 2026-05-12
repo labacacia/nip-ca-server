@@ -233,9 +233,9 @@ func IssueCert(
 
 // Provisional OIDs — replace once IANA PEN is granted (RFC-0002 §10 OQ-2).
 var (
-	oidEkuAgent         = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 1}
-	oidEkuNode          = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 2}
-	oidNidAssuranceLvl  = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 2, 1}
+	oidEkuAgent         = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 65715, 1, 1}
+	oidEkuNode          = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 65715, 1, 2}
+	oidNidAssuranceLvl  = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 65715, 2, 1}
 	oidExtensionExtKeyUsage = asn1.ObjectIdentifier{2, 5, 29, 37}
 )
 
