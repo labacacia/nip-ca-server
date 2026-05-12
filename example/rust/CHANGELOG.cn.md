@@ -13,7 +13,7 @@
 ### Added
 
 - 在 NPS 套件 `1.0.0-alpha.2` 标签下首次发布 `NIP CA Server — Rust`（Axum + SQLite）。
-- 遵循 [NPS-3 §8](../../spec/NPS-3-NIP.md) 的 REST API：`/v1/agents/*`、`/v1/nodes/*`、`/v1/ca/cert`、`/v1/crl`、`/.well-known/nps-ca`、`/health`。
+- 遵循 [NPS-3 §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md) 的 REST API：`/v1/agents/*`、`/v1/nodes/*`、`/v1/ca/cert`、`/v1/crl`、`/.well-known/nps-ca`、`/health`。
 - Ed25519 签名，AES-256-GCM + PBKDF2 密钥文件加密，SQLite 存储。
 - Docker Compose 入口。
 - README 新增中文副本（`README.cn.md`），两份文件顶部都带语言切换器。

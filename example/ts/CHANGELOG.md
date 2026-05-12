@@ -13,7 +13,7 @@ Until NPS reaches v1.0 stable, every repository in the suite is synchronized to 
 ### Added
 
 - First release of `NIP CA Server — TypeScript` (Fastify + better-sqlite3) under the NPS suite `1.0.0-alpha.2` umbrella tag.
-- REST API surface per [NPS-3 §8](../../spec/NPS-3-NIP.md): `/v1/agents/*`, `/v1/nodes/*`, `/v1/ca/cert`, `/v1/crl`, `/.well-known/nps-ca`, `/health`.
+- REST API surface per [NPS-3 §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md): `/v1/agents/*`, `/v1/nodes/*`, `/v1/ca/cert`, `/v1/crl`, `/.well-known/nps-ca`, `/health`.
 - Ed25519 signing, AES-256-GCM + PBKDF2 key file encryption, SQLite-backed storage.
 - Docker Compose entrypoint.
 - README gained a Chinese counterpart (`README.cn.md`) with a language switcher at the top of both files.

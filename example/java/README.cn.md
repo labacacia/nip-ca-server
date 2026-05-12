@@ -28,7 +28,7 @@ docker compose up -d
 
 ## API
 
-v1 端点（legacy）：与其他语言的 NIP CA Server 实现共用同一组端点 —— 详见 [NPS-3 §8](../../spec/NPS-3-NIP.md)。
+v1 端点（legacy）：与其他语言的 NIP CA Server 实现共用同一组端点 —— 详见 [NPS-3 §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md)。
 
 **v2 端点（NPS-RFC-0002 X.509 + Ed25519 双信任）—— alpha.4 新增**：
 

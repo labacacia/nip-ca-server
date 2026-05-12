@@ -3,7 +3,7 @@
 # NIP CA Server —— 参考实现
 
 本目录收录 NIP CA Server 的 Python、TypeScript、Java、Rust、Go 五种额外实现。
-它们作为 [NPS-3 §8](https://gitee.com/labacacia/nps/blob/main/spec/NPS-3-NIP.cn.md)
+它们作为 [NPS-3 §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md)
 CA REST 接口的**参考移植**保留，方便你阅读或 fork 非 .NET 版本。
 
 ## 状态
