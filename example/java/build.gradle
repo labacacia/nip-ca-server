@@ -5,7 +5,7 @@ plugins {
 }
 
 group   = 'com.labacacia'
-version = '1.0.0-alpha.4'
+version = '1.0.0-alpha.6'
 
 java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
 
@@ -17,7 +17,7 @@ dependencies {
     implementation 'org.slf4j:slf4j-api'
 
     // NPS Java SDK (NPS-RFC-0002 X.509 + ACME primitives) via composite build.
-    implementation 'com.labacacia.nps:nps-java:1.0.0-alpha.4'
+    implementation 'com.labacacia.nps:nps-java:1.0.0-alpha.6'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }

@@ -8,6 +8,71 @@ Until NPS reaches v1.0 stable, every repository in the suite is synchronized to 
 
 ---
 
+## [1.0.0-alpha.6] — 2026-05-12
+
+### Added
+
+- **Orchestrator group + session NID endpoints (NPS-CR-0003)**: Four new HTTP routes:
+  `POST /v1/orchestrators/groups/register` (Operator-authed) mints a longer-lived
+  group NID with `lineage.role = "group"`; `POST /v1/orchestrators/groups/{nid}/sessions/issue`
+  mints short-lived session NIDs (default 1 hour, max 24 hours) chained to the
+  group via signed `lineage`; the session-issue endpoint accepts EITHER an
+  Operator-API-key Bearer (plain JSON body) OR a flattened group-JWS
+  (`Content-Type: application/jose+json`, `alg=EdDSA`, `nps-purpose=session-issue`).
+  `POST /v1/orchestrators/groups/{nid}/revoke` revokes the group AND cascades to
+  every live session under it (reason `parent_revoked`).
+  `GET /v1/orchestrators/groups/{nid}/sessions` lists sessions for audit.
+  `/.well-known/nps-ca` advertises `"orchestrator-group"` capability.
+
+- **Database migration `db/002_orchestrator_session.sql`**: Idempotent — adds
+  `nid_role` / `parent_nid` / `lineage_json` columns plus a partial index on
+  `parent_nid` and a `CHECK` constraint binding `nid_role` to the spec-defined
+  values. **Apply this migration before upgrading the binary** — the new code
+  paths write the new columns on every group / session registration.
+
+- **`NIP-CERT-PARENT-REVOKED` chain check**: `GET /v1/agents/{nid}/verify` now
+  performs the NPS-3 §7 step 3a parent lookup. Sessions whose group has been
+  revoked are rejected with the new error code regardless of whether the
+  cascade DB update already landed (defense-in-depth).
+
+### Tracking the suite
+
+This release tracks NPS suite `v1.0.0-alpha.6` and depends on
+`LabAcacia.NPS.NIP` ≥ `1.0.0-alpha.6` (which adds `IdentFrame.lineage`,
+`NipCaService.RegisterGroupAsync` / `IssueSessionAsync`, the JWS verifier,
+and the SQLite + PostgreSQL store extensions).
+
+---
+
+## [1.0.0-alpha.5] — 2026-05-01
+
+### Added
+
+- **SQLite backend via `AddNipCaWithSqlite()`**: `LabAcacia.NPS.NIP` now ships
+  `SqliteNipCaStore` and the `AddNipCaWithSqlite(configure, connectionString)` DI
+  extension, enabling single-binary / embedded CA deployments without a PostgreSQL
+  sidecar. The standalone NIP CA Server binary continues to use PostgreSQL; the new API
+  targets applications that embed the `LabAcacia.NPS.NIP` library directly.
+  Closes [labacacia/NPS-Dev#19](https://github.com/labacacia/NPS-Dev/issues/19).
+
+- **Pluggable `INipCaStore` injection**: New `AddNipCa(configure, INipCaStore store)`
+  overload accepts any certificate store implementation — useful for tests without a
+  live database and for custom storage backends.
+  Closes [labacacia/NPS-Dev#18](https://github.com/labacacia/NPS-Dev/issues/18).
+
+### Tracking the suite
+
+This release tracks NPS suite `v1.0.0-alpha.5`. The CA Server itself
+ships unchanged — its v1 IdentFrame issuance surface is identical to
+alpha.4 — but the underlying NuGet dependency is bumped:
+
+- `LabAcacia.NPS.NIP` `1.0.0-alpha.5` adds `topology:read` to the NIP
+  capabilities registry (NIP v0.6), fixes empty-string `assurance_level`
+  handling, and includes NWP error-code constants. Renames the wire
+  field `estimated_npt → cgn_est` (NPS-Dev#17) in the protocol layer.
+
+---
+
 ## [1.0.0-alpha.4] — 2026-04-30
 
 ### Tracking the suite
@@ -85,6 +150,7 @@ for the full suite-level rollup.
 
 ---
 
+[1.0.0-alpha.5]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.5
 [1.0.0-alpha.4]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.4
 [1.0.0-alpha.3]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.3
 [1.0.0-alpha.2]: https://github.com/labacacia/NPS-Release/releases/tag/v1.0.0-alpha.2

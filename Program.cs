@@ -1,9 +1,19 @@
 // Copyright 2026 INNO LOTUS PTY LTD
 // SPDX-License-Identifier: Apache-2.0
 
+using NPS.Daemon.Observability;
+using NPS.Daemon.Observability.Logging;
+using NPS.Daemon.Observability.Shutdown;
+using NPS.NIP.Ca;
+using NPS.NIP.Crypto;
 using NPS.NIP.Extensions;
+using NPS.NipCaServer.Observability;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ── Logging ────────────────────────────────────────────────────────────────
+// Single-line JSON to stdout. Min level controlled by NPS_LOG_LEVEL.
+builder.Logging.AddNpsJsonConsole();
 
 // ── Configuration ──────────────────────────────────────────────────────────
 // All secrets MUST come from environment variables.
@@ -35,22 +45,50 @@ builder.Services.AddNipCa(opts =>
     if (int.TryParse(caSection["RenewalWindowDays"],     out var renewDays)) opts.RenewalWindowDays     = renewDays;
 
     opts.NormalizeOcspResponseTime = caSection.GetValue("NormalizeOcspResponseTime", true);
+    opts.OperatorApiKey            = caSection["OperatorApiKey"]; // env: NIPCA__OPERATORAPIKEY
+    opts.AcmeEnabled               = caSection.GetValue("AcmeEnabled", false);
+    opts.AcmePathPrefix            = caSection["AcmePathPrefix"] ?? "/acme";
 },
-// Always generate the key on first run — the key is AES-256-GCM encrypted with the
-// operator-supplied passphrase, so auto-generation is safe in any environment.
-// Previously this was gated on IsDevelopment(), which caused crash-loops in Docker.
-generateKeyIfMissing: true);
+generateKeyIfMissing: builder.Environment.IsDevelopment());
 
 builder.Services.AddHealthChecks();
+
+// ── Observability baseline (NPS-Dev #45) ───────────────────────────────────
+builder.Services.AddNpsObservability();
+builder.Services.AddSingleton<NipCaMetrics>();
+builder.Services.AddReadinessProbe("storage", async (sp, ct) =>
+{
+    var store = sp.GetRequiredService<INipCaStore>();
+    try
+    {
+        // Cheap round-trip — non-existent NID returns null without mutation.
+        _ = await store.GetByNidAsync("urn:nps:probe:readyz:nonexistent", ct);
+        return null;
+    }
+    catch (Exception ex)
+    {
+        return $"ca store unavailable: {ex.Message}";
+    }
+});
+builder.Services.AddReadinessProbe("key_material", (sp, _) =>
+{
+    var keys = sp.GetService<NipKeyManager>();
+    return Task.FromResult<string?>(
+        keys is null ? "CA key manager not registered" : null);
+});
 
 // ── Build ──────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
 app.UseHttpsRedirection();
+app.UseShutdownLivenessGate();
+app.UseMiddleware<NipCaMetricsMiddleware>();
 
 // ── Routes ─────────────────────────────────────────────────────────────────
+app.UseNipAcme();
 app.MapNipCa();
 app.MapHealthChecks("/health");
+app.MapNpsObservability(); // /healthz, /readyz, /metrics
 
 // ── Run ────────────────────────────────────────────────────────────────────
 app.Run();
