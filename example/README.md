@@ -4,7 +4,7 @@ English | [中文版](./README.cn.md)
 
 This directory contains five additional NIP CA Server implementations in
 Python, TypeScript, Java, Rust and Go. They are kept here as **reference
-ports** of the [NPS-3 §8](https://github.com/labacacia/nps/blob/main/spec/NPS-3-NIP.md)
+ports** of the [NPS-3 §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md)
 CA REST surface, useful when you want to read or fork a non-.NET version.
 
 ## Status

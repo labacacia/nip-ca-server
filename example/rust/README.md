@@ -30,7 +30,7 @@ docker compose up -d
 
 ## API
 
-Same endpoints as all other NIP CA Server implementations — see [NPS-3 §8](../../spec/NPS-3-NIP.md).
+Same endpoints as all other NIP CA Server implementations — see [NPS-3 §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md).
 
 `alpha.4` adds two `v2` endpoints per **NPS-RFC-0002** that issue dual-trust IdentFrames carrying both the v1 Ed25519 signature **and** a 2-cert X.509 chain (leaf + self-signed root):
 

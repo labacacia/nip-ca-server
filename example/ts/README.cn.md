@@ -28,7 +28,7 @@ docker compose up -d
 
 ## API
 
-与其他语言的 NIP CA Server 实现共用同一组端点 —— 详见 [NPS-3 §8](../../spec/NPS-3-NIP.md)。
+与其他语言的 NIP CA Server 实现共用同一组端点 —— 详见 [NPS-3 §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md)。
 
 `alpha.4` 按 **NPS-RFC-0002** 新增两个 `v2` 端点，签发同时携带 v1 Ed25519 签名 **与** 2 段 X.509 链（leaf + 自签 root）的双信任 IdentFrame：
 

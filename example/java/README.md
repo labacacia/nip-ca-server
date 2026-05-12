@@ -28,7 +28,7 @@ docker compose up -d
 
 ## API
 
-Legacy v1 endpoints: same as all other NIP CA Server implementations — see [NPS-3 §8](../../spec/NPS-3-NIP.md).
+Legacy v1 endpoints: same as all other NIP CA Server implementations — see [NPS-3 §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md).
 
 **v2 endpoints (NPS-RFC-0002 X.509 + Ed25519 dual-trust)** — alpha.4 addition:
 
