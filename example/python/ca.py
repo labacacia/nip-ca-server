@@ -26,9 +26,9 @@ NONCE_LEN = 12
 KEY_LEN = 32
 
 # NPS-RFC-0002 §4 — provisional OIDs (replace post-IANA PEN assignment).
-_OID_EKU_AGENT          = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.1")
-_OID_EKU_NODE           = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.2")
-_OID_NID_ASSURANCE_LVL  = x509.ObjectIdentifier("1.3.6.1.4.1.99999.2.1")
+_OID_EKU_AGENT          = x509.ObjectIdentifier("1.3.6.1.4.1.65715.1.1")
+_OID_EKU_NODE           = x509.ObjectIdentifier("1.3.6.1.4.1.65715.1.2")
+_OID_NID_ASSURANCE_LVL  = x509.ObjectIdentifier("1.3.6.1.4.1.65715.2.1")
 
 
 def _derive_key(passphrase: str, salt: bytes) -> bytes:
