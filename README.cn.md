@@ -26,7 +26,7 @@ Ed25519 NID 证书。
 - 按 [NPS-3 §8](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md) 为 Agent 和 Node 颁发 NID
 - 全程使用 **Ed25519** 签名
 - CA 私钥落盘采用 **AES-256-GCM + PBKDF2** 加密
-- **PostgreSQL** 存储（Docker Compose 自带 Postgres 16 sidecar）
+- **PostgreSQL** 存储（Docker Compose 自带 Postgres 16 sidecar）；嵌入式 / 单二进制场景可通过 `AddNipCaWithSqlite()` 使用 **SQLite**
 - **OCSP** + **CRL** + **`/.well-known/nps-ca`** 发现端点
 - **单 Docker 镜像**，非 root 运行，内置 healthcheck
 - **运营方鉴权** —— 可选 Bearer token，保护所有写入端点
@@ -117,7 +117,7 @@ dotnet run --project NPS.NipCaServer.csproj
 每个 release tag 都会推到 GitHub Container Registry：
 
 ```bash
-docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.5
+docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.6
 ```
 
 本地构建：

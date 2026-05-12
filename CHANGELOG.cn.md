@@ -8,6 +8,47 @@
 
 ---
 
+## [1.0.0-alpha.6] —— 2026-05-12
+
+### 新增
+
+- **Orchestrator group + session NID endpoints（NPS-CR-0003）**：新增
+  group NID 注册 / 吊销、短期 session NID 签发以及 session 审计列表接口；
+  session 可通过 Operator API key 或 group-JWS 签发。
+
+### 跟随套件
+
+- 项目版本、publish-overlay 版本以及 `LabAcacia.NPS.*`
+  PackageReference 统一对齐到 `1.0.0-alpha.6`。
+
+---
+
+## [1.0.0-alpha.5] —— 2026-05-01
+
+### 新增
+
+- **SQLite 后端 `AddNipCaWithSqlite()`**：`LabAcacia.NPS.NIP` 新增
+  `SqliteNipCaStore` 及 DI 扩展 `AddNipCaWithSqlite(configure, connectionString)`，
+  支持无 PostgreSQL sidecar 的单二进制 / 嵌入式 CA 部署。独立 NIP CA Server
+  二进制仍使用 PostgreSQL；新 API 面向直接嵌入 `LabAcacia.NPS.NIP` 库的应用。
+  关联 [labacacia/NPS-Dev#19](https://github.com/labacacia/NPS-Dev/issues/19)。
+
+- **可插拔 `INipCaStore` 注入**：新增 `AddNipCa(configure, INipCaStore store)` 重载，
+  接受任意证书存储实现，便于无数据库环境下测试或接入自定义存储后端。
+  关联 [labacacia/NPS-Dev#18](https://github.com/labacacia/NPS-Dev/issues/18)。
+
+### 跟随套件
+
+本次跟随 NPS 套件 `v1.0.0-alpha.5`。CA Server 本身代码不变 ——
+v1 IdentFrame 签发接口与 alpha.4 完全一致 —— 但底层 NuGet 依赖升级：
+
+- `LabAcacia.NPS.NIP` `1.0.0-alpha.5` 在 NIP 能力注册表（NIP v0.6）
+  中新增 `topology:read`，修复 `assurance_level` 空字符串处理，
+  并加入 NWP 错误码常量。同时将 wire 字段
+  `estimated_npt → cgn_est`（NPS-Dev#17）在协议层完成重命名。
+
+---
+
 ## [1.0.0-alpha.4] —— 2026-04-30
 
 ### 跟随套件的协议变更
@@ -79,6 +120,7 @@ NuGet 依赖升至 `v1.0.0-alpha.4`，带来以下能力：
 
 ---
 
+[1.0.0-alpha.5]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.5
 [1.0.0-alpha.4]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.4
 [1.0.0-alpha.3]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.3
 [1.0.0-alpha.2]: https://gitee.com/labacacia/NPS-Release/releases/tag/v1.0.0-alpha.2
