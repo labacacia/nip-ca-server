@@ -1,6 +1,7 @@
 // Copyright 2026 INNO LOTUS PTY LTD
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Net;
 using NPS.Daemon.Observability;
 using NPS.Daemon.Observability.Logging;
 using NPS.Daemon.Observability.Shutdown;
@@ -10,6 +11,28 @@ using NPS.NIP.Extensions;
 using NPS.NipCaServer.Observability;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ── Port configuration ─────────────────────────────────────────────────────
+// Public CA port — reachable by agents and nodes.
+var publicPort = builder.Configuration.GetValue("NipCa:Port", 17435);
+
+// Management address — serves /metrics, and accepts /healthz + /readyz.
+// Defaults to loopback so Prometheus scrapers must be co-located or
+// tunnelled; set NIPCA__MGMT_ADDR to expose on a wider interface.
+var mgmtAddrRaw  = builder.Configuration["NipCa:MgmtAddr"] ?? "127.0.0.1:17436";
+var mgmtColonIdx = mgmtAddrRaw.LastIndexOf(':');
+var mgmtHost     = mgmtColonIdx > 0 ? mgmtAddrRaw[..mgmtColonIdx] : "127.0.0.1";
+var mgmtPort     = mgmtColonIdx > 0 && int.TryParse(mgmtAddrRaw[(mgmtColonIdx + 1)..], out var p) ? p : 17436;
+var mgmtIp       = mgmtHost is "localhost" or "127.0.0.1"
+    ? IPAddress.Loopback
+    : IPAddress.Parse(mgmtHost);
+
+builder.WebHost.ConfigureKestrel(opts =>
+{
+    opts.ListenAnyIP(publicPort);       // public CA endpoint
+    opts.Listen(mgmtIp, mgmtPort);     // management-only endpoint
+});
+
 
 // ── Logging ────────────────────────────────────────────────────────────────
 // Single-line JSON to stdout. Min level controlled by NPS_LOG_LEVEL.
@@ -84,11 +107,26 @@ app.UseHttpsRedirection();
 app.UseShutdownLivenessGate();
 app.UseMiddleware<NipCaMetricsMiddleware>();
 
+// /metrics is restricted to the management port (NPS-Dev #58).
+// /healthz and /readyz remain reachable on both ports (k8s/LB probes).
+var capturedMgmtPort = mgmtPort;
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Path == "/metrics" && ctx.Connection.LocalPort != capturedMgmtPort)
+    {
+        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+    await next(ctx);
+});
+
 // ── Routes ─────────────────────────────────────────────────────────────────
 app.UseNipAcme();
 app.MapNipCa();
 app.MapHealthChecks("/health");
-app.MapNpsObservability(); // /healthz, /readyz, /metrics
+app.MapNpsObservability(
+    metricsBearerToken: caSection["MetricsBearerToken"] ?? caSection["OperatorApiKey"],
+    requireMetricsBearerToken: true); // /healthz, /readyz, /metrics
 
 // ── Run ────────────────────────────────────────────────────────────────────
 app.Run();

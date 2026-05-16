@@ -8,18 +8,51 @@
 
 ---
 
-## [1.0.0-alpha.6] —— 2026-05-12
+## [1.0.0-alpha.6] —— 2026-05-14
 
 ### 新增
 
-- **Orchestrator group + session NID endpoints（NPS-CR-0003）**：新增
-  group NID 注册 / 吊销、短期 session NID 签发以及 session 审计列表接口；
-  session 可通过 Operator API key 或 group-JWS 签发。
+- **Orchestrator group + session NID 端点（NPS-CR-0003）**：新增四条 HTTP 路由。
+  `POST /v1/orchestrators/groups/register`（Operator 鉴权）签发长期 group NID，
+  `lineage.role = "group"`；`POST /v1/orchestrators/groups/{nid}/sessions/issue`
+  签发短期 session NID（默认 1 小时，最长 24 小时），通过签名 `lineage` 关联 group；
+  session 签发端点同时接受 Operator API key Bearer（plain JSON）或 group-JWS
+  （`Content-Type: application/jose+json`，`alg=EdDSA`，`nps-purpose=session-issue`）。
+  `POST /v1/orchestrators/groups/{nid}/revoke` 吊销 group 并级联吊销旗下所有活跃
+  session（原因 `parent_revoked`）。
+  `GET /v1/orchestrators/groups/{nid}/sessions` 列出 session 供审计。
+  `/.well-known/nps-ca` 广播 `"orchestrator-group"` capability。
+
+- **数据库迁移 `db/002_orchestrator_session.sql`**：幂等脚本——新增
+  `nid_role` / `parent_nid` / `lineage_json` 列，以及 `parent_nid` 的部分索引
+  和将 `nid_role` 绑定到规范定义值的 `CHECK` 约束。**升级二进制前请先执行此迁移**
+  ——新代码路径在每次 group / session 注册时写入新列。
+
+- **`NIP-CERT-PARENT-REVOKED` 链式检查**：`GET /v1/agents/{nid}/verify` 现在执行
+  NPS-3 §7 步骤 3a 的父级查找。group 已被吊销的 session 会被拒绝并返回新错误码，
+  无论级联 DB 更新是否已落盘（纵深防御）。
+
+- **`/metrics` 限制于管理端口 17436（fix #58）**：公共 CA 端口（17435）不再提供 `/metrics`。专用管理端口（17436，默认仅监听本地回环）提供 `/metrics`、`/healthz`、`/readyz`。访问 metrics 需要 bearer token（`NIPCA__METRICSBEARER` 或 `NIPCA__OPERATORAPIKEY`）。
+
+- **可观测性基线**：`/healthz`（存活探针，含 SIGTERM 排空门控）、`/readyz`（就绪探针，含存储 + 密钥材料检查）、`/metrics`（Prometheus，CA 签发计数器）。结构化 JSON 日志，通过 `NPS_LOG_LEVEL` 控制级别。
+
+- **ACME `agent-01` 端点**（`NipCaOptions.AcmeEnabled`）：可选启用，用于自动化 NID 证书签发的 ACME 挑战处理器。
+
+- **`NipCaOptions.OperatorApiKey`**：操作员 API 密钥，用于 metrics bearer 认证和管理操作。
+
+### 变更
+
+- **`generateKeyIfMissing` 现在仅在 `IsDevelopment()` 时生效**：生产环境必须提供已有的加密密钥；自动生成仅限开发环境。
+
+- **`appsettings.Docker.json` — Kestrel 配置迁移至代码**：静态 `Kestrel.Endpoints.Http` 节已替换为 `NipCa.MgmtAddr`（`0.0.0.0:17436`）；17435 端口现在通过代码绑定。
+
+- **版本升级至 `1.0.0-alpha.6`** —— `LabAcacia.NPS.NIP` 及新增的 `LabAcacia.NPS.Daemon.Observability` 依赖均更新至 `1.0.0-alpha.6`。
 
 ### 跟随套件
 
-- 项目版本、publish-overlay 版本以及 `LabAcacia.NPS.*`
-  PackageReference 统一对齐到 `1.0.0-alpha.6`。
+本次跟随 NPS 套件 `v1.0.0-alpha.6`，依赖 `LabAcacia.NPS.NIP` ≥ `1.0.0-alpha.6`
+（新增 `IdentFrame.lineage`、`NipCaService.RegisterGroupAsync` / `IssueSessionAsync`、
+JWS 验证器以及 SQLite + PostgreSQL 存储扩展）。
 
 ---
 
@@ -120,6 +153,7 @@ NuGet 依赖升至 `v1.0.0-alpha.4`，带来以下能力：
 
 ---
 
+[1.0.0-alpha.6]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.6
 [1.0.0-alpha.5]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.5
 [1.0.0-alpha.4]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.4
 [1.0.0-alpha.3]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.3
