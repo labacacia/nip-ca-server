@@ -8,7 +8,7 @@ Until NPS reaches v1.0 stable, every repository in the suite is synchronized to 
 
 ---
 
-## [1.0.0-alpha.6] — 2026-05-12
+## [1.0.0-alpha.6] — 2026-05-14
 
 ### Added
 
@@ -34,6 +34,22 @@ Until NPS reaches v1.0 stable, every repository in the suite is synchronized to 
   performs the NPS-3 §7 step 3a parent lookup. Sessions whose group has been
   revoked are rejected with the new error code regardless of whether the
   cascade DB update already landed (defense-in-depth).
+
+- **`/metrics` restricted to management port 17436 (fix #58)**: The public CA port (17435) no longer serves `/metrics`. A dedicated management port (17436, loopback by default) serves `/metrics`, `/healthz`, and `/readyz`. Metrics require a bearer token (`NIPCA__METRICSBEARER` or `NIPCA__OPERATORAPIKEY`).
+
+- **Observability baseline**: `/healthz` (liveness with SIGTERM drain gate), `/readyz` (readiness with storage + key-material probes), `/metrics` (Prometheus, CA issuance counters). Structured JSON logging via `NPS_LOG_LEVEL`.
+
+- **ACME `agent-01` endpoint** (`NipCaOptions.AcmeEnabled`): opt-in ACME challenge handler for automated NID certificate issuance.
+
+- **`NipCaOptions.OperatorApiKey`**: operator API key for metrics bearer auth and admin operations.
+
+### Changed
+
+- **`generateKeyIfMissing` now gated on `IsDevelopment()`**: Production deployments must supply a pre-existing encrypted key; auto-generation is Development-only.
+
+- **`appsettings.Docker.json` — Kestrel config moved to code**: The static `Kestrel.Endpoints.Http` section is replaced by `NipCa.MgmtAddr` (`0.0.0.0:17436`); port 17435 is now bound programmatically.
+
+- **Version bump to `1.0.0-alpha.6`** — `LabAcacia.NPS.NIP` and new `LabAcacia.NPS.Daemon.Observability` dependencies both updated to `1.0.0-alpha.6`.
 
 ### Tracking the suite
 
@@ -150,6 +166,7 @@ for the full suite-level rollup.
 
 ---
 
+[1.0.0-alpha.6]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.6
 [1.0.0-alpha.5]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.5
 [1.0.0-alpha.4]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.4
 [1.0.0-alpha.3]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.3
