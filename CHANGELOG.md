@@ -35,7 +35,7 @@ Until NPS reaches v1.0 stable, every repository in the suite is synchronized to 
   revoked are rejected with the new error code regardless of whether the
   cascade DB update already landed (defense-in-depth).
 
-- **`/metrics` restricted to management port 17436 (fix #58)**: The public CA port (17435) no longer serves `/metrics`. A dedicated management port (17436, loopback by default) serves `/metrics`, `/healthz`, and `/readyz`. Metrics require a bearer token (`NIPCA__METRICSBEARER` or `NIPCA__OPERATORAPIKEY`).
+- **`/metrics` restricted to management port 17436 (fix #58)**: The public CA port (17435) no longer serves `/metrics`. A dedicated management port (17436, loopback by default) serves `/metrics`, `/healthz`, and `/readyz`. Metrics require a bearer token (`NIPCA__METRICSBEARERTOKEN` or `NIPCA__OPERATORAPIKEY`).
 
 - **Observability baseline**: `/healthz` (liveness with SIGTERM drain gate), `/readyz` (readiness with storage + key-material probes), `/metrics` (Prometheus, CA issuance counters). Structured JSON logging via `NPS_LOG_LEVEL`.
 
