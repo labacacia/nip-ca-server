@@ -32,7 +32,7 @@
   NPS-3 §7 步骤 3a 的父级查找。group 已被吊销的 session 会被拒绝并返回新错误码，
   无论级联 DB 更新是否已落盘（纵深防御）。
 
-- **`/metrics` 限制于管理端口 17436（fix #58）**：公共 CA 端口（17435）不再提供 `/metrics`。专用管理端口（17436，默认仅监听本地回环）提供 `/metrics`、`/healthz`、`/readyz`。访问 metrics 需要 bearer token（`NIPCA__METRICSBEARER` 或 `NIPCA__OPERATORAPIKEY`）。
+- **`/metrics` 限制于管理端口 17436（fix #58）**：公共 CA 端口（17435）不再提供 `/metrics`。专用管理端口（17436，默认仅监听本地回环）提供 `/metrics`、`/healthz`、`/readyz`。访问 metrics 需要 bearer token（`NIPCA__METRICSBEARERTOKEN` 或 `NIPCA__OPERATORAPIKEY`）。
 
 - **可观测性基线**：`/healthz`（存活探针，含 SIGTERM 排空门控）、`/readyz`（就绪探针，含存储 + 密钥材料检查）、`/metrics`（Prometheus，CA 签发计数器）。结构化 JSON 日志，通过 `NPS_LOG_LEVEL` 控制级别。
 

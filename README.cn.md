@@ -73,6 +73,8 @@ curl http://localhost:17435/health
 | `NIPCA__ALLOWEDCAPABILITIES` | 否 | — | 可授权能力白名单（逗号分隔）；请求包含未列举能力时返回 403 |
 | `NIPCA__ACMEENABLED` | 否 | `false` | 启用 ACME RFC 8555 + `agent-01` 挑战（NPS-RFC-0002） |
 | `NIPCA__ACMEPATHPREFIX` | 否 | `/acme` | ACME 端点的 HTTP 路由前缀 |
+| `NIPCA__MGMT_ADDR` | 否 | `127.0.0.1:17436` | 管理端口监听地址（`/metrics`、`/healthz`、`/readyz`），默认仅监听本地回环 |
+| `NIPCA__METRICSBEARERTOKEN` | 否 | — | `/metrics` 端点 Bearer token；不设置时回退至 `NIPCA__OPERATORAPIKEY` |
 
 ### TLS
 
@@ -99,6 +101,18 @@ curl http://localhost:17435/health
 | `GET`  | `/health` | 健康检查（就绪后返回 200） |
 
 写入端点（`register`、`register-x509`、`renew`、`revoke`）在设置了 `NIPCA__OPERATORAPIKEY` 时需携带 `Authorization: Bearer <token>` 请求头。
+
+### 管理端口端点（默认 127.0.0.1:17436）
+
+以下端点**仅**在管理端口（`NIPCA__MGMT_ADDR`）上提供，公共 CA 端口（17435）不暴露这些路径：
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| `GET` | `/healthz` | 存活探针；SIGTERM 排空期间返回 503 |
+| `GET` | `/readyz` | 就绪探针；含存储 + 密钥材料检查 |
+| `GET` | `/metrics` | Prometheus metrics（需要 Bearer token） |
+
+`/metrics` 需在请求头携带 `Authorization: Bearer <token>`，token 优先取 `NIPCA__METRICSBEARERTOKEN`，未设置时回退至 `NIPCA__OPERATORAPIKEY`。
 
 字段级 schema 见 [NPS-3 §8](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md)。
 
