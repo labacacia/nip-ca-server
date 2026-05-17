@@ -8,6 +8,27 @@
 
 ---
 
+## [1.0.0-alpha.7] —— 2026-05-17
+
+### 新增
+
+- **RA 模型数据库迁移 `db/003_ra_model.sql`（NPS-CR-0005）**：幂等脚本，新增两张表以支持三级授权注册模型：
+  `nip_bootstrap_tokens` 存储单次使用注册 token 的 SHA-256 哈希（Tier 2 — BootstrapToken）；
+  `nip_pending_registrations` 提供操作员审批队列（Tier 3 — ApprovalQueue）。
+  **升级二进制前请先执行此迁移**（如需使用 RA 门控注册流程）。
+
+### 跟随套件
+
+本次跟随 NPS 套件 `v1.0.0-alpha.7`，套件亮点：
+
+- **RFC-0004 Phase 2 —— `ReputationLogClient`**：六个 SDK（.NET、Python、TypeScript、Go、Java、Rust）均已实现 CT 式声誉日志客户端，使用 Ed25519 双签名，包含 `SignedTreeHead`、`InclusionProof` 及 RFC 9162 Merkle 折叠。
+
+- **SDK 一致性 —— AnchorNodeClient 测试覆盖**：Python、Go、Java、Rust 四语言 `AnchorNodeClient` 各新增完整测试套件（每语言 21–25 个测试），覆盖五种 topology 事件类型、流取消、错误传播及 URL 规范化。
+
+- 依赖 `LabAcacia.NPS.NIP` ≥ `1.0.0-alpha.7`。
+
+---
+
 ## [1.0.0-alpha.6] —— 2026-05-14
 
 ### 新增
@@ -153,6 +174,7 @@ NuGet 依赖升至 `v1.0.0-alpha.4`，带来以下能力：
 
 ---
 
+[1.0.0-alpha.7]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.7
 [1.0.0-alpha.6]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.6
 [1.0.0-alpha.5]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.5
 [1.0.0-alpha.4]: https://gitee.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.4

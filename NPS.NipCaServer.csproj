@@ -7,14 +7,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>NPS.NipCaServer</AssemblyName>
     <RootNamespace>NPS.NipCaServer</RootNamespace>
-    <Version>1.0.0-alpha.6</Version>
+    <Version>1.0.0-alpha.7</Version>
     <Description>NPS NIP CA Server — standalone Docker deployable CA for issuing NID certificates.</Description>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="LabAcacia.NPS.NIP"                  Version="1.0.0-alpha.6" />
-    <PackageReference Include="LabAcacia.NPS.Daemon.Observability" Version="1.0.0-alpha.6" />
+    <PackageReference Include="LabAcacia.NPS.NIP"                  Version="1.0.0-alpha.7" />
+    <PackageReference Include="LabAcacia.NPS.Daemon.Observability" Version="1.0.0-alpha.7" />
   </ItemGroup>
 
 </Project>
