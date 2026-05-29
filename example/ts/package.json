@@ -1,6 +1,6 @@
 {
   "name": "@labacacia/nip-ca-server",
-  "version": "1.0.0-alpha.6",
+  "version": "1.0.0-alpha.11",
   "description": "NIP CA Server — TypeScript/Node.js",
   "license": "Apache-2.0",
   "type": "module",

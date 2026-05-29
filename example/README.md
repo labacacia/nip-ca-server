@@ -12,8 +12,8 @@ CA REST surface, useful when you want to read or fork a non-.NET version.
 | Aspect | Reference impls (this folder) | Reference release impl (`..` / .NET) |
 |--------|-------------------------------|--------------------------------------|
 | Maintained | No | Yes |
-| Released   | No (no Docker images, no tags) | Yes (`v1.0.0-alpha.3`+) |
-| Spec parity | Frozen at `v1.0.0-alpha.2` | Tracks the suite |
+| Released   | No (no Docker images, no tags) | Yes (`v1.0.0-alpha.11`+) |
+| Spec parity | Frozen at `v1.0.0-alpha.11` | Tracks the suite |
 | CI         | Excluded | Built + tested per release |
 | Recommended for production | No | Yes |
 
