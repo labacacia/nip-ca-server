@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>NPS.NipCaServer</AssemblyName>
     <RootNamespace>NPS.NipCaServer</RootNamespace>
-    <Version>1.0.0-alpha.11</Version>
+    <Version>1.0.0-alpha.13</Version>
     <Description>NPS NIP CA Server — standalone Docker deployable CA for issuing NID certificates.</Description>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
   </PropertyGroup>
