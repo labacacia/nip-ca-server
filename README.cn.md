@@ -2,11 +2,10 @@
 
 # NIP CA Server
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](./LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](../../LICENSE)
 [![NuGet](https://img.shields.io/nuget/v/LabAcacia.NPS.NIP.svg?label=LabAcacia.NPS.NIP)](https://www.nuget.org/packages/LabAcacia.NPS.NIP/)
 [![GitHub Release](https://img.shields.io/github/v/release/labacacia/nip-ca-server?include_prereleases)](https://github.com/labacacia/nip-ca-server/releases)
-[![Release](https://img.shields.io/badge/release-v1.0.0--alpha.13-orange.svg)](CHANGELOG.cn.md)
-[![Next](https://img.shields.io/badge/next-v1.0.0--alpha.14--candidate-yellow.svg)](CHANGELOG.cn.md#100-alpha14--unreleased)
+[![Release](https://img.shields.io/badge/release-v1.0.0--alpha.14-orange.svg)](CHANGELOG.cn.md)
 [![NIP](https://img.shields.io/badge/NIP-v0.10-7b61ff.svg)]()
 [![Spec](https://img.shields.io/badge/spec-NPS--3%20%C2%A78-success)](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md)
 
@@ -73,11 +72,10 @@ curl http://localhost:17435/health
 | `NIPCA__RENEWALWINDOWDAYS` | 否 | `7` | 到期前多少天可续签 |
 | `NIPCA__NORMALIZEOCSPRESPONSETIME` | 否 | `true` | OCSP `producedAt` 取整到秒 |
 | `NIPCA__OPERATORAPIKEY` | 否 | — | 写入端点所需的 Bearer token；不设置则禁用鉴权（仅限开发环境） |
+| `NIPCA__METRICSBEARERTOKEN` | 否 | `NIPCA__OPERATORAPIKEY` | `/metrics` 的 Bearer token；两者都未配置时 `/metrics` 返回 404，`/healthz` 和 `/readyz` 保持公开 |
 | `NIPCA__ALLOWEDCAPABILITIES` | 否 | — | 可授权能力白名单（逗号分隔）；请求包含未列举能力时返回 403 |
 | `NIPCA__ACMEENABLED` | 否 | `false` | 启用 ACME RFC 8555 + `agent-01` 挑战（NPS-RFC-0002） |
 | `NIPCA__ACMEPATHPREFIX` | 否 | `/acme` | ACME 端点的 HTTP 路由前缀 |
-| `NIPCA__MGMT_ADDR` | 否 | `127.0.0.1:17436` | 管理端口监听地址（`/metrics`、`/healthz`、`/readyz`），默认仅监听本地回环 |
-| `NIPCA__METRICSBEARERTOKEN` | 否 | — | `/metrics` 端点 Bearer token；不设置时回退至 `NIPCA__OPERATORAPIKEY` |
 
 ### TLS
 
@@ -105,17 +103,7 @@ curl http://localhost:17435/health
 
 写入端点（`register`、`register-x509`、`renew`、`revoke`）在设置了 `NIPCA__OPERATORAPIKEY` 时需携带 `Authorization: Bearer <token>` 请求头。
 
-### 管理端口端点（默认 127.0.0.1:17436）
-
-以下端点**仅**在管理端口（`NIPCA__MGMT_ADDR`）上提供，公共 CA 端口（17435）不暴露这些路径：
-
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| `GET` | `/healthz` | 存活探针；SIGTERM 排空期间返回 503 |
-| `GET` | `/readyz` | 就绪探针；含存储 + 密钥材料检查 |
-| `GET` | `/metrics` | Prometheus metrics（需要 Bearer token） |
-
-`/metrics` 需在请求头携带 `Authorization: Bearer <token>`，token 优先取 `NIPCA__METRICSBEARERTOKEN`，未设置时回退至 `NIPCA__OPERATORAPIKEY`。
+`/metrics` 不公开。可设置 `NIPCA__METRICSBEARERTOKEN` 作为监控平面凭据；未设置时复用 `NIPCA__OPERATORAPIKEY`。两者都未设置时，`/metrics` 返回 404，避免暴露运行计数器。
 
 字段级 schema 见 [NPS-3 §8](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md)。
 
@@ -134,7 +122,7 @@ dotnet run --project NPS.NipCaServer.csproj
 每个 release tag 都会推到 GitHub Container Registry：
 
 ```bash
-docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.13
+docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.14
 ```
 
 本地构建：

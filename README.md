@@ -2,11 +2,10 @@ English | [中文版](./README.cn.md)
 
 # NIP CA Server
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](./LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](../../LICENSE)
 [![NuGet](https://img.shields.io/nuget/v/LabAcacia.NPS.NIP.svg?label=LabAcacia.NPS.NIP)](https://www.nuget.org/packages/LabAcacia.NPS.NIP/)
 [![GitHub Release](https://img.shields.io/github/v/release/labacacia/nip-ca-server?include_prereleases)](https://github.com/labacacia/nip-ca-server/releases)
-[![Release](https://img.shields.io/badge/release-v1.0.0--alpha.13-orange.svg)](CHANGELOG.md)
-[![Next](https://img.shields.io/badge/next-v1.0.0--alpha.14--candidate-yellow.svg)](CHANGELOG.md#100-alpha14--unreleased)
+[![Release](https://img.shields.io/badge/release-v1.0.0--alpha.14-orange.svg)](CHANGELOG.md)
 [![NIP](https://img.shields.io/badge/NIP-v0.10-7b61ff.svg)]()
 [![Spec](https://img.shields.io/badge/spec-NPS--3%20%C2%A78-success)](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md)
 
@@ -135,7 +134,7 @@ Pre-built images are pushed to GitHub Container Registry on every
 release tag:
 
 ```bash
-docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.13
+docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.14
 ```
 
 Build locally:

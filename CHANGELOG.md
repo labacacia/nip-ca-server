@@ -8,50 +8,15 @@ Until NPS reaches v1.0 stable, every repository in the suite is synchronized to 
 
 ---
 
+## [1.0.0-alpha.14] — 2026-06-26
+
+- Suite-wide version sync to 1.0.0-alpha.14.
+
 ## [1.0.0-alpha.13] — 2026-06-13
 
-### Changed
-- Suite version alignment to `1.0.0-alpha.13`. No functional changes in this repository for this release; the bump keeps the whole NPS suite on a single version tag (oracle: NPS-Dev `version.yaml`).
+- Suite-wide version sync to 1.0.0-alpha.13.
 
-## [1.0.0-alpha.8] — 2026-05-28
-
-### Tracking the suite
-
-This release tracks NPS suite `v1.0.0-alpha.8`.
-
-Suite highlights: RFC-0005 `ReputationPolicyEvaluator` in .NET SDK; cgn_limit pre-execution enforcement; RFC-0002 and RFC-0005 promoted to Accepted.
-
----
-
-## [1.0.0-alpha.7] — 2026-05-17
-
-### Added
-
-- **RA model database migration `db/003_ra_model.sql` (NPS-CR-0005)**: Idempotent
-  migration adds two tables for the three-tier enrollment model:
-  `nip_bootstrap_tokens` stores SHA-256 hashes of single-use enrollment tokens
-  (Tier 2 — BootstrapToken); `nip_pending_registrations` provides the
-  operator-approval queue (Tier 3 — ApprovalQueue). **Apply this migration before
-  upgrading the binary** if you plan to use RA-gated enrollment.
-
-### Tracking the suite
-
-This release tracks NPS suite `v1.0.0-alpha.7`, which adds:
-
-- **RFC-0004 Phase 2 — `ReputationLogClient`** across all six SDKs (.NET, Python,
-  TypeScript, Go, Java, Rust): CT-style reputation log client; dual-signature
-  (Ed25519); `SignedTreeHead`, `InclusionProof`, RFC 9162 Merkle fold.
-
-- **SDK parity — AnchorNodeClient test coverage**: Python, Go, Java, and Rust
-  `AnchorNodeClient` implementations each gain a full test suite (21–25 tests per
-  language) covering all five topology event types, stream cancellation, error
-  propagation, and URL normalization.
-
-- **`LabAcacia.NPS.NIP` ≥ `1.0.0-alpha.7`** required.
-
----
-
-## [1.0.0-alpha.6] — 2026-05-14
+## [1.0.0-alpha.6] — 2026-05-12
 
 ### Added
 
@@ -77,22 +42,6 @@ This release tracks NPS suite `v1.0.0-alpha.7`, which adds:
   performs the NPS-3 §7 step 3a parent lookup. Sessions whose group has been
   revoked are rejected with the new error code regardless of whether the
   cascade DB update already landed (defense-in-depth).
-
-- **`/metrics` restricted to management port 17436 (fix #58)**: The public CA port (17435) no longer serves `/metrics`. A dedicated management port (17436, loopback by default) serves `/metrics`, `/healthz`, and `/readyz`. Metrics require a bearer token (`NIPCA__METRICSBEARERTOKEN` or `NIPCA__OPERATORAPIKEY`).
-
-- **Observability baseline**: `/healthz` (liveness with SIGTERM drain gate), `/readyz` (readiness with storage + key-material probes), `/metrics` (Prometheus, CA issuance counters). Structured JSON logging via `NPS_LOG_LEVEL`.
-
-- **ACME `agent-01` endpoint** (`NipCaOptions.AcmeEnabled`): opt-in ACME challenge handler for automated NID certificate issuance.
-
-- **`NipCaOptions.OperatorApiKey`**: operator API key for metrics bearer auth and admin operations.
-
-### Changed
-
-- **`generateKeyIfMissing` now gated on `IsDevelopment()`**: Production deployments must supply a pre-existing encrypted key; auto-generation is Development-only.
-
-- **`appsettings.Docker.json` — Kestrel config moved to code**: The static `Kestrel.Endpoints.Http` section is replaced by `NipCa.MgmtAddr` (`0.0.0.0:17436`); port 17435 is now bound programmatically.
-
-- **Version bump to `1.0.0-alpha.6`** — `LabAcacia.NPS.NIP` and new `LabAcacia.NPS.Daemon.Observability` dependencies both updated to `1.0.0-alpha.6`.
 
 ### Tracking the suite
 
@@ -209,8 +158,6 @@ for the full suite-level rollup.
 
 ---
 
-[1.0.0-alpha.7]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.7
-[1.0.0-alpha.6]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.6
 [1.0.0-alpha.5]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.5
 [1.0.0-alpha.4]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.4
 [1.0.0-alpha.3]: https://github.com/labacacia/nip-ca-server/releases/tag/v1.0.0-alpha.3

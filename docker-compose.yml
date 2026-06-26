@@ -27,6 +27,7 @@ services:
         condition: service_healthy
     ports:
       - "${NIP_PORT:-17435}:17435"
+      - "127.0.0.1:17436:17436"   # management port: /metrics, /healthz, /readyz (host-local only)
     volumes:
       - ca_keys:/data
     environment:
@@ -38,8 +39,9 @@ services:
       NIPCA__AGENTCERTVALIDITYDAYS: ${NIPCA__AGENTCERTVALIDITYDAYS:-30}
       NIPCA__NODECERTVALIDITYDAYS:  ${NIPCA__NODECERTVALIDITYDAYS:-90}
       NIPCA__RENEWALWINDOWDAYS:     ${NIPCA__RENEWALWINDOWDAYS:-7}
+      NIPCA__MGMT_ADDR:        "0.0.0.0:17436"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:17435/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:17436/healthz || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -33,7 +33,6 @@ builder.WebHost.ConfigureKestrel(opts =>
     opts.Listen(mgmtIp, mgmtPort);     // management-only endpoint
 });
 
-
 // ── Logging ────────────────────────────────────────────────────────────────
 // Single-line JSON to stdout. Min level controlled by NPS_LOG_LEVEL.
 builder.Logging.AddNpsJsonConsole();
@@ -71,6 +70,20 @@ builder.Services.AddNipCa(opts =>
     opts.OperatorApiKey            = caSection["OperatorApiKey"]; // env: NIPCA__OPERATORAPIKEY
     opts.AcmeEnabled               = caSection.GetValue("AcmeEnabled", false);
     opts.AcmePathPrefix            = caSection["AcmePathPrefix"] ?? "/acme";
+
+    // ── RA model (NPS-CR-0005) ────────────────────────────────────────────
+    if (Enum.TryParse<NPS.NIP.Ca.EnrollmentTier>(caSection["EnrollmentTier"], ignoreCase: true, out var tier))
+        opts.EnrollmentTier = tier;
+
+    var allowlistSection = caSection.GetSection("EnrollmentAllowlistPatterns");
+    if (allowlistSection.Exists())
+        opts.EnrollmentAllowlistPatterns = allowlistSection.Get<string[]>() ?? [];
+
+    if (int.TryParse(caSection["BootstrapTokenMaxTtlSeconds"], out var bttl))
+        opts.BootstrapTokenMaxTtl = TimeSpan.FromSeconds(bttl);
+
+    if (int.TryParse(caSection["PendingQueueMaxSize"], out var pqs))
+        opts.PendingQueueMaxSize = pqs;
 },
 generateKeyIfMissing: builder.Environment.IsDevelopment());
 

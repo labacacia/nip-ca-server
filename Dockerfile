@@ -36,13 +36,13 @@ RUN chown -R nipca:nipca /app
 
 USER nipca
 
-# Default NIP port (NPS-3 §1).
+# Public CA port (NPS-3 §1) + management port (/metrics, /healthz, /readyz).
 EXPOSE 17435
+EXPOSE 17436
 
 ENV ASPNETCORE_ENVIRONMENT=Docker
-ENV ASPNETCORE_URLS=http://0.0.0.0:17435
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:17435/health || exit 1
+  CMD curl -f http://localhost:17436/healthz || exit 1
 
 ENTRYPOINT ["dotnet", "NPS.NipCaServer.dll"]
