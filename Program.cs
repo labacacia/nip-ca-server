@@ -43,7 +43,7 @@ builder.Logging.AddNpsJsonConsole();
 
 var caSection = builder.Configuration.GetSection("NipCa");
 
-builder.Services.AddNipCa(opts =>
+builder.Services.AddNipCaWithPostgres(opts =>
 {
     opts.CaNid            = caSection["CaNid"]
         ?? throw new InvalidOperationException("NipCa:CaNid is required (env: NIPCA__CANID).");
