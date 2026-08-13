@@ -8,6 +8,18 @@ Until NPS reaches v1.0 stable, every repository in the suite is synchronized to 
 
 ---
 
+## [1.0.0-alpha.18] — Unreleased
+
+### Changed
+
+- Align package metadata, container examples, and publish-overlay SDK references with the alpha.18 synchronized candidate.
+
+## [1.0.0-alpha.17] — 2026-08-02
+
+### Changed
+
+- Prepare the alpha.17 CA server candidate by aligning package metadata, container examples, and publish-overlay SDK dependencies with the server-surface parity release.
+
 ## [1.0.0-alpha.16] — 2026-07-23
 
 ### Changed

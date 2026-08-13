@@ -8,6 +8,18 @@
 
 ---
 
+## [1.0.0-alpha.18] —— 未发布
+
+### 变更
+
+- 将包元数据、容器示例和 publish-overlay SDK 引用对齐到 alpha.18 同步候选版。
+
+## [1.0.0-alpha.17] —— 2026-08-02
+
+### 变更
+
+- 对齐 package metadata、容器示例与 publish overlay SDK 依赖，准备服务端能力对齐版本的 alpha.17 CA server 候选。
+
 ## [1.0.0-alpha.16] —— 2026-07-23
 
 ### 变更
