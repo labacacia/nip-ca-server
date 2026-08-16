@@ -5,8 +5,8 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](../../LICENSE)
 [![NuGet](https://img.shields.io/nuget/v/LabAcacia.NPS.NIP.svg?label=LabAcacia.NPS.NIP)](https://www.nuget.org/packages/LabAcacia.NPS.NIP/)
 [![GitHub Release](https://img.shields.io/github/v/release/labacacia/nip-ca-server?include_prereleases)](https://github.com/labacacia/nip-ca-server/releases)
-[![Release](https://img.shields.io/badge/release-v1.0.0--alpha.16-orange.svg)](CHANGELOG.cn.md)
-[![NIP](https://img.shields.io/badge/NIP-v0.10-7b61ff.svg)]()
+[![Release](https://img.shields.io/badge/release-v1.0.0--alpha.18-orange.svg)](CHANGELOG.cn.md)
+[![NIP](https://img.shields.io/badge/NIP-v0.14-7b61ff.svg)]()
 [![Spec](https://img.shields.io/badge/spec-NPS--3%20%C2%A78-success)](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md)
 
 面向 **Neural Identity Protocol**（NPS-3）的自托管证书颁发机构 ——
@@ -119,16 +119,17 @@ dotnet run --project NPS.NipCaServer.csproj
 
 ## Docker 镜像
 
-每个 release tag 都会推到 GitHub Container Registry：
+**不提供预构建镜像。** NPS 发布的是协议套件本体与各语言包，容器镜像不在发布物范围内。
+请从本仓库自行构建：
 
 ```bash
-docker pull ghcr.io/labacacia/nip-ca-server:1.0.0-alpha.18
+docker build -t nip-ca-server:1.0.0-alpha.18 .
 ```
 
-本地构建：
+或连同依赖一起拉起：
 
 ```bash
-docker build -t nip-ca-server:dev .
+docker compose up -d --build
 ```
 
 ## 版本规则
