@@ -21,6 +21,9 @@ Ed25519 NID 证书。
 > 规范：[NPS-3 NIP §8](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md) ·
 > 套件：[NPS-Release](https://gitee.com/labacacia/NPS-Release)
 
+package、镜像、service 与配置标识符的已接受决策见
+[命名与兼容性](docs/naming-and-compatibility.md)。
+
 ---
 
 ## 特性

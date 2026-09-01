@@ -22,6 +22,9 @@ as unmaintained reference reads.
 > Spec: [NPS-3 NIP §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md) ·
 > Suite: [NPS-Release](https://github.com/labacacia/NPS-Release)
 
+See [Naming and compatibility](docs/naming-and-compatibility.md) for the
+accepted package, image, service and configuration identifier decision.
+
 ---
 
 ## Features
