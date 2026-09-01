@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](../../LICENSE)
 [![NuGet](https://img.shields.io/nuget/v/LabAcacia.NPS.NIP.svg?label=LabAcacia.NPS.NIP)](https://www.nuget.org/packages/LabAcacia.NPS.NIP/)
-[![GitHub Release](https://img.shields.io/github/v/release/labacacia/nip-ca-server?include_prereleases)](https://github.com/labacacia/nip-ca-server/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/labacacia/NIP-CA-Server?include_prereleases)](https://github.com/labacacia/NIP-CA-Server/releases)
 [![Release](https://img.shields.io/badge/release-v1.0.0--alpha.18-orange.svg)](CHANGELOG.cn.md)
 [![NIP](https://img.shields.io/badge/NIP-v0.14-7b61ff.svg)]()
 [![Spec](https://img.shields.io/badge/spec-NPS--3%20%C2%A78-success)](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md)
@@ -17,7 +17,7 @@ Ed25519 NID 证书。
 移植版本放在 [`example/`](./example/) 目录下作为参考阅读，不再维护。
 
 > 源仓库：[gitee.com/labacacia/nip-ca-server](https://gitee.com/labacacia/nip-ca-server) ·
-> 镜像：[github.com/labacacia/nip-ca-server](https://github.com/labacacia/nip-ca-server) ·
+> 镜像：[github.com/labacacia/NIP-CA-Server](https://github.com/labacacia/NIP-CA-Server) ·
 > 规范：[NPS-3 NIP §8](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md) ·
 > 套件：[NPS-Release](https://gitee.com/labacacia/NPS-Release)
 
@@ -142,7 +142,7 @@ docker compose up -d --build
 | 角色 | 位置 |
 |------|------|
 | 规范 —— NIP 协议 | [`NPS-Release/spec/NPS-3-NIP.cn.md`](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md) |
-| .NET NIP 客户端 SDK | [`labacacia/NPS-sdk-dotnet`](https://gitee.com/labacacia/NPS-sdk-dotnet) |
+| .NET NIP 客户端 SDK | [`labacacia/NPS-SDK-DotNet`](https://gitee.com/labacacia/NPS-SDK-DotNet) |
 | 其他语言 NIP SDK | [`labacacia/NPS-sdk-{py,ts,java,rust,go}`](https://gitee.com/labacacia/dashboard/projects?q=NPS-sdk) |
 | 套件总览 | [`labacacia/NPS-Release`](https://gitee.com/labacacia/NPS-Release) |
 | 开发用 monorepo | 私有仓库 —— 发布以单向同步落到此处 |

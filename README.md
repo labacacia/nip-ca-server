@@ -4,7 +4,7 @@ English | [中文版](./README.cn.md)
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](../../LICENSE)
 [![NuGet](https://img.shields.io/nuget/v/LabAcacia.NPS.NIP.svg?label=LabAcacia.NPS.NIP)](https://www.nuget.org/packages/LabAcacia.NPS.NIP/)
-[![GitHub Release](https://img.shields.io/github/v/release/labacacia/nip-ca-server?include_prereleases)](https://github.com/labacacia/nip-ca-server/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/labacacia/NIP-CA-Server?include_prereleases)](https://github.com/labacacia/NIP-CA-Server/releases)
 [![Release](https://img.shields.io/badge/release-v1.0.0--alpha.18-orange.svg)](CHANGELOG.md)
 [![NIP](https://img.shields.io/badge/NIP-v0.14-7b61ff.svg)]()
 [![Spec](https://img.shields.io/badge/spec-NPS--3%20%C2%A78-success)](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md)
@@ -17,7 +17,7 @@ This is the **reference release implementation**. Five additional ports
 (Python, TypeScript, Java, Rust, Go) live under [`example/`](./example/)
 as unmaintained reference reads.
 
-> Source of truth: [github.com/labacacia/nip-ca-server](https://github.com/labacacia/nip-ca-server) ·
+> Source of truth: [github.com/labacacia/NIP-CA-Server](https://github.com/labacacia/NIP-CA-Server) ·
 > Mirror: [gitee.com/labacacia/nip-ca-server](https://gitee.com/labacacia/nip-ca-server) ·
 > Spec: [NPS-3 NIP §8](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md) ·
 > Suite: [NPS-Release](https://github.com/labacacia/NPS-Release)
@@ -40,7 +40,7 @@ as unmaintained reference reads.
 The fastest path is the bundled `docker-compose.yml`:
 
 ```bash
-git clone https://github.com/labacacia/nip-ca-server.git
+git clone https://github.com/labacacia/NIP-CA-Server.git
 cd nip-ca-server
 
 cat > .env <<'EOF'
@@ -155,7 +155,7 @@ See [`CHANGELOG.md`](./CHANGELOG.md) for per-version notes.
 | Role | Where |
 |------|-------|
 | Spec — NIP protocol | [`NPS-Release/spec/NPS-3-NIP.md`](https://github.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.md) |
-| .NET NIP client SDK | [`labacacia/NPS-sdk-dotnet`](https://github.com/labacacia/NPS-sdk-dotnet) |
+| .NET NIP client SDK | [`labacacia/NPS-SDK-DotNet`](https://github.com/labacacia/NPS-SDK-DotNet) |
 | Other-language NIP SDKs | [`labacacia/NPS-sdk-{py,ts,java,rust,go}`](https://github.com/orgs/labacacia/repositories?q=NPS-sdk) |
 | Suite umbrella | [`labacacia/NPS-Release`](https://github.com/labacacia/NPS-Release) |
 | Development monorepo | private — releases land here as one-way syncs |
