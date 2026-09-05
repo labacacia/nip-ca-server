@@ -99,14 +99,24 @@ curl http://localhost:17435/health
 | `POST` | `/v1/nodes/{nid}/renew` | 续签 Node 证书 |
 | `POST` | `/v1/nodes/{nid}/revoke` | 吊销 Node 证书 |
 | `GET`  | `/v1/nodes/{nid}/verify` | 查询 / OCSP 验证某 Node NID |
+| `POST` | `/v1/orchestrators/groups/register` | 注册 orchestrator group NID（NPS-CR-0003） |
+| `POST` | `/v1/orchestrators/groups/{group_nid}/sessions/issue` | 在 group 下签发短时 session NID（NPS-CR-0003） |
+| `POST` | `/v1/orchestrators/groups/{group_nid}/revoke` | 吊销 group，并级联吊销仍有效的 session（NPS-CR-0003） |
+| `GET`  | `/v1/orchestrators/groups/{group_nid}/sessions` | 列出 group 下的 session，用于审计（NPS-CR-0003） |
 | `GET`  | `/v1/ca/cert` | CA 公钥 |
 | `GET`  | `/v1/crl` | 证书吊销列表 |
 | `GET`  | `/.well-known/nps-ca` | CA 发现文档 |
 | `GET`  | `/health` | 健康检查（就绪后返回 200） |
 
-写入端点（`register`、`register-x509`、`renew`、`revoke`）在设置了 `NIPCA__OPERATORAPIKEY` 时需携带 `Authorization: Bearer <token>` 请求头。
+写入端点（`register`、`register-x509`、`renew`、`revoke`、`orchestrators/groups/...`）在设置了 `NIPCA__OPERATORAPIKEY` 时需携带 `Authorization: Bearer <token>` 请求头。
 
 `/metrics` 不公开。可设置 `NIPCA__METRICSBEARERTOKEN` 作为监控平面凭据；未设置时复用 `NIPCA__OPERATORAPIKEY`。两者都未设置时，`/metrics` 返回 404，避免暴露运行计数器。
+
+`sessions/issue` 端点还接受 Ed25519 group-JWS 请求体（`Content-Type: application/jose+json`，
+protected header 为 `alg=EdDSA, kid=<group_nid>, nps-purpose=session-issue`），让持有
+group 私钥的 orchestrator 不依赖 Operator 凭据即可自签发 session。详见
+[NPS-3 §5.1.3 / §8](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md)
+与 [NPS-CR-0003](https://github.com/labacacia/NPS-Release/blob/main/spec/cr/NPS-CR-0003-orchestrator-group-session-nids.md)。
 
 字段级 schema 见 [NPS-3 §8](https://gitee.com/labacacia/NPS-Release/blob/main/spec/NPS-3-NIP.cn.md)。
 

@@ -38,9 +38,16 @@
 
 - 套件版本同步到 1.0.0-alpha.14。
 
+## [1.0.0-alpha.14] —— 2026-06-13
+
+- 套件版本同步到 1.0.0-alpha.14。
+
 ## [1.0.0-alpha.6] —— 2026-05-12
 
 ### 新增
+
+- session NID 链校验在 parent/group 已吊销或过期时返回
+  `NIP-CERT-PARENT-REVOKED`。
 
 - **Orchestrator group + session NID endpoints（NPS-CR-0003）**：新增
   group NID 注册 / 吊销、短期 session NID 签发以及 session 审计列表接口；
