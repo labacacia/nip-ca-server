@@ -244,7 +244,7 @@ public class CaController {
         return doRevoke(nid, body);
     }
 
-    private ResponseEntity<Map<String, Object>> doRevoke(String nid, Map<String, Object> body) {
+    private ResponseEntity<Map<String, Object>> doRevoke(String nid, Map<String, Object> body) throws Exception {
         String reason = body.containsKey("reason") ? (String) body.get("reason") : "cessation_of_operation";
         if (!VALID_REASONS.contains(reason))
             return ResponseEntity.badRequest().body(Map.of(
@@ -259,16 +259,16 @@ public class CaController {
     // ── Verify ────────────────────────────────────────────────────────────────
 
     @GetMapping("/v1/agents/{nid}/verify")
-    public ResponseEntity<Map<String, Object>> verifyAgent(@PathVariable String nid) {
+    public ResponseEntity<Map<String, Object>> verifyAgent(@PathVariable String nid) throws Exception {
         return doVerify(nid);
     }
 
     @GetMapping("/v1/nodes/{nid}/verify")
-    public ResponseEntity<Map<String, Object>> verifyNode(@PathVariable String nid) {
+    public ResponseEntity<Map<String, Object>> verifyNode(@PathVariable String nid) throws Exception {
         return doVerify(nid);
     }
 
-    private ResponseEntity<Map<String, Object>> doVerify(String nid) {
+    private ResponseEntity<Map<String, Object>> doVerify(String nid) throws Exception {
         Optional<DbService.CertRecord> opt = db.getActive(nid);
         if (opt.isEmpty()) return notFound(nid);
         DbService.CertRecord rec = opt.get();

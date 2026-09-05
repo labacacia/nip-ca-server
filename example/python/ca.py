@@ -25,7 +25,7 @@ SALT_LEN = 16
 NONCE_LEN = 12
 KEY_LEN = 32
 
-# NPS-RFC-0002 §4 — provisional OIDs (replace post-IANA PEN assignment).
+# NPS-RFC-0002 §4 — IANA-assigned LabAcacia PEN 65715 OIDs.
 _OID_EKU_AGENT          = x509.ObjectIdentifier("1.3.6.1.4.1.65715.1.1")
 _OID_EKU_NODE           = x509.ObjectIdentifier("1.3.6.1.4.1.65715.1.2")
 _OID_NID_ASSURANCE_LVL  = x509.ObjectIdentifier("1.3.6.1.4.1.65715.2.1")
