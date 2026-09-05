@@ -138,7 +138,7 @@ components as source and language packages; container images are not part of
 the release. Build the image yourself from this repository:
 
 ```bash
-docker build -t nip-ca-server:1.0.0-alpha.18 .
+docker build -t nip-ca-server:1.0.0-alpha.19 .
 ```
 
 Or bring it up together with its dependencies:

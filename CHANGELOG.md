@@ -8,6 +8,12 @@ Until NPS reaches v1.0 stable, every repository in the suite is synchronized to 
 
 ---
 
+## [1.0.0-alpha.19] — 2026-09-05
+
+### Changed
+
+- Align package metadata, container examples, portable example builds, and publish-overlay SDK references with the alpha.19 synchronized candidate.
+
 ## [1.0.0-alpha.18] — 2026-08-15
 
 ### Changed

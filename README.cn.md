@@ -136,7 +136,7 @@ dotnet run --project NPS.NipCaServer.csproj
 请从本仓库自行构建：
 
 ```bash
-docker build -t nip-ca-server:1.0.0-alpha.18 .
+docker build -t nip-ca-server:1.0.0-alpha.19 .
 ```
 
 或连同依赖一起拉起：
